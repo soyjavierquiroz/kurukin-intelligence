@@ -33,7 +33,7 @@ Secret Swarm externo: `kurukin_tiktok_database_url_v1`, target `/run/secrets/kur
 
 ## Orden exacto del despliegue futuro
 
-**Estos comandos son documentación; aún no se ejecutaron.** Ejecutar como root desde `/opt/apps/kurukin-tiktok`, en el nodo que aloja los tasks. No encadenar pasos si uno falla.
+**Estos comandos son documentación; aún no se ejecutaron.** Ejecutar como root desde `/opt/apps/kurukin-intelligence`, en el nodo que aloja los tasks. No encadenar pasos si uno falla.
 
 1. Comprobar bootstrap:
    ```bash

@@ -41,7 +41,7 @@ Tablas verificadas: channels, analyses, videos, video_snapshots, transcripts, al
 
 ## 9–11. Deploy y volumen
 
-Se ejecutó `docker stack deploy --resolve-image never -c /opt/apps/kurukin-tiktok/stack.yml kurukin-tiktok` después de verificar migración y esquema.
+Se ejecutó `docker stack deploy --resolve-image never -c /opt/apps/kurukin-intelligence/stack.yml kurukin-tiktok` después de verificar migración y esquema.
 
 - kurukin-tiktok_api: 0.2.0, 1/1, container f184f9734ce5, restart_count=0, OOM=false.
 - kurukin-tiktok_whisper-worker: 0.2.0, 1/1, container 74871dd2166e, restart_count=0, OOM=false.
