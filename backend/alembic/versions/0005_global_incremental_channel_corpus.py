@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = '0005_global_incremental_channel_corpus'
+revision = '0005_global_incremental_corpus'
 down_revision = '0004_video_music_metadata'
 branch_labels = None
 depends_on = None
