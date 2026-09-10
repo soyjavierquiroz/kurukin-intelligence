@@ -1,6 +1,6 @@
 # Kurukin Intelligence
 
-Current extension release: **Kurukin TikTok Collector v0.8.1**. Normal audio
+Current extension release: **Kurukin TikTok Collector v0.8.4**. Normal audio
 acquisition is browser MP4→WAV followed by server HTTP 202; local Silero/YAMNet
 remain explicit Audio Lab diagnostics only. See [extension/README.md](extension/README.md).
 

@@ -10,6 +10,7 @@
     return response.value;
   }
   const reserve=(runtime,videos)=>call(runtime,'KURUKIN_BACKEND_RESERVE',{videos});
+  const reportFailure=(runtime,analysisId,tiktokId,code)=>call(runtime,'KURUKIN_BACKEND_FAILURE',{analysisId,tiktokId,code});
   async function upload(runtime,analysisId,tiktokId,buffer){
     let wavBase64=null;
     const started=Date.now();
@@ -18,5 +19,5 @@
     finally{wavBase64=null;buffer=null;}
   }
   const diagnostic=error=>{const value=error?.diagnostic;return {baseHost:'intelligence.kuruk.in',httpStatus:Number.isInteger(value?.httpStatus)&&value.httpStatus>=100&&value.httpStatus<=599?value.httpStatus:null,errorCode:['NETWORK_ERROR','HTTP_RESPONSE','INVALID_RESPONSE','RUNTIME_ERROR'].includes(value?.errorCode)?value.errorCode:'RUNTIME_ERROR'};};
-  const api=Object.freeze({reserve,upload,diagnostic});root.KurukinAcquisition=api;if(typeof module!=='undefined')module.exports=api;
+  const api=Object.freeze({reserve,upload,reportFailure,diagnostic});root.KurukinAcquisition=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

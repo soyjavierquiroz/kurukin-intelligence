@@ -35,7 +35,7 @@ async def lifespan(app):
             await task
 
 
-app = FastAPI(title='Kurukin backend', version='0.4.0', lifespan=lifespan)
+app = FastAPI(title='Kurukin backend', version='0.4.1', lifespan=lifespan)
 
 
 @app.exception_handler(HTTPException)
@@ -108,7 +108,7 @@ async def database_error(request, exc):
     return JSONResponse(status_code=503, content={'detail': 'Database unavailable'})
 
 
-from .schemas import AnalysisInput
+from .schemas import AnalysisInput, BrowserAcquisitionFailure
 
 
 @app.post('/api/v1/analyses', status_code=201)
@@ -163,3 +163,10 @@ async def upload_audio(analysis_id: UUID, tiktok_id: str, request: Request,
             return await run_in_threadpool(process_audio, analysis_id, tiktok_id, data, db)
         except OSError:
             return JSONResponse(status_code=503, content={'code': 'audio_storage_unavailable', 'retryable': True})
+
+
+@app.post('/api/v1/analyses/{analysis_id}/videos/{tiktok_id}/acquisition-failure', status_code=202)
+def report_acquisition_failure(analysis_id: UUID, tiktok_id: str, payload: BrowserAcquisitionFailure,
+                               db: Session = Depends(get_db)):
+    from .jobs import release_reserved_acquisition
+    return release_reserved_acquisition(analysis_id, tiktok_id, payload.code, db)

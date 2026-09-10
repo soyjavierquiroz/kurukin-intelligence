@@ -144,6 +144,35 @@ def receipt(job):
     return dict(status=job.status, video_id=str(job.video_id), job_id=str(job.id), audio_received=job.audio_received_at is not None)
 
 
+def release_reserved_acquisition(analysis_id, tiktok_id, error_code, db):
+    """Release only the still-owned, pre-audio reservation reported by the browser.
+
+    An ignored response is deliberately successful: a duplicate report, a late
+    report after audio arrived, or an unrelated analysis must never undo work.
+    """
+    row = db.execute(select(AnalysisAcquisition, Video)
+        .join(Video, Video.id == AnalysisAcquisition.video_id)
+        .where(AnalysisAcquisition.analysis_id == analysis_id, Video.tiktok_id == tiktok_id)
+        .with_for_update(of=Video)).first()
+    if row is None:
+        db.commit()
+        return {'released': False}
+    _acquisition, video = row
+    job = db.scalar(select(TranscriptionJob).where(TranscriptionJob.video_id == video.id).with_for_update())
+    if (job is None or job.status != 'reserved' or
+            video.enrichment_analysis_id != analysis_id):
+        db.commit()
+        return {'released': False}
+    job.status = 'expired'
+    job.last_error_code = error_code
+    job.updated_at = now()
+    video.enrichment_status = 'expired'
+    video.enrichment_analysis_id = None
+    video.enrichment_lease_until = None
+    db.commit()
+    return {'released': True}
+
+
 def enqueue(db, job_id, publisher):
     # Do not overwrite processing/completed if consumer beats publisher's DB update.
     job = db.scalar(select(TranscriptionJob).where(TranscriptionJob.id == job_id).with_for_update())

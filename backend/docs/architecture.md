@@ -20,7 +20,7 @@ flowchart TD
 
 Los cinco modelos del corpus se conservan: channels, analyses, videos, video_snapshots y transcripts. `videos.tiktok_id` y `transcripts.video_id` siguen siendo UNIQUE globales. Ranking Decimal, elegibilidad, snapshots y cobertura siguen globales y reutilizables. No se guardan MP4 ni URLs privadas de media. Metadata pública únicamente; se mantienen los filtros contra cookies, tokens y otros campos sensibles.
 
-### Corpus incremental global (0.4.0)
+### Corpus incremental global (0.4.1)
 
 `0005_global_incremental_corpus` convierte la recolección en un corpus incremental por canal, sin mover ni borrar el corpus existente. Añade `channels.tiktok_user_id` nullable y único junto a `platform`: `profile.author_id`, cuando el collector lo conoce, es la identidad canónica; `username` queda como metadata pública mutable. La restricción histórica de handle único se retira para permitir el reciclaje de handles por TikTok. Un scan que encuentra un ID estable ya conocido actualiza ese mismo canal y consolida una fila legacy sin ID que tuviera el handle actual.
 

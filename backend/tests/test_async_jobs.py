@@ -14,7 +14,7 @@ from app.config import get_settings, Settings
 from app.models import AudioAssessment, TranscriptionJob, Transcript, Video, now
 from app.services import create_analysis, acquisition_batch, analysis_response
 from app.jobs import (receive_audio, requeue_pending_jobs, cleanup_audio, inbox_lock, capacity,
-                      atomic_store, job_path)
+                      atomic_store, job_path, release_reserved_acquisition)
 from app.workers.whisper import process_job, handle_delivery
 from test_corpus import payload, wav, complete
 
@@ -127,6 +127,66 @@ def test_expired_reacquires_same_job(db):
     second = create_analysis(db, payload((39.,), [100])); db.commit()
     assert job.id == original and job.status == 'reserved'
     assert analysis_response(db, second)['enrichment_requests']
+
+
+def test_browser_failure_releases_reserved_job_and_later_batch_reclaims_it(db):
+    a = create_analysis(db, payload((39.,), [100])); db.commit()
+    job = db.scalar(select(TranscriptionJob)); video = db.get(Video, job.video_id)
+    assert release_reserved_acquisition(a.id, '10000', 'FETCH_MP4_VIDEO_NOT_AVAILABLE', db) == {'released': True}
+    assert job.status == 'expired' and job.last_error_code == 'FETCH_MP4_VIDEO_NOT_AVAILABLE'
+    assert video.enrichment_status == 'expired' and video.enrichment_analysis_id is None
+    assert video.enrichment_lease_until is None
+    response = acquisition_batch(db, a.id)
+    assert job.status == 'reserved' and video.enrichment_analysis_id == a.id
+    assert any(request['tiktok_id'] == '10000' for request in response['enrichment_requests'])
+
+
+def test_browser_failure_is_idempotent_and_never_cancels_received_audio(db):
+    a = create_analysis(db, payload((39.,), [100])); db.commit()
+    assert release_reserved_acquisition(a.id, '10000', 'FETCH_MP4_FAILED', db) == {'released': True}
+    assert release_reserved_acquisition(a.id, '10000', 'FETCH_MP4_FAILED', db) == {'released': False}
+    # Reclaim, then establish durable audio before a late browser report.
+    acquisition_batch(db, a.id)
+    receive_audio(a.id, '10000', wav(), db, lambda job: None)
+    job = db.scalar(select(TranscriptionJob)); video = db.get(Video, job.video_id)
+    assert job.status == 'queued'
+    assert release_reserved_acquisition(a.id, '10000', 'HTTP_UPLOAD_FAILED', db) == {'released': False}
+    assert job.status == 'queued' and video.enrichment_analysis_id == a.id
+
+
+@pytest.mark.parametrize('status', ['audio_received', 'queued', 'processing', 'completed'])
+def test_browser_failure_late_report_never_cancels_post_audio_states(db, status):
+    a = create_analysis(db, payload((39.,), [100])); db.commit()
+    job = db.scalar(select(TranscriptionJob)); video = db.get(Video, job.video_id)
+    job.status = status; db.commit()
+    assert release_reserved_acquisition(a.id, '10000', 'HTTP_UPLOAD_FAILED', db) == {'released': False}
+    assert job.status == status and video.enrichment_analysis_id == a.id and video.enrichment_lease_until is not None
+
+
+def test_browser_failure_from_another_analysis_is_safe_noop(db):
+    first = create_analysis(db, payload((39.,), [100])); db.commit()
+    second = create_analysis(db, payload((39.,), [100])); db.commit()
+    job = db.scalar(select(TranscriptionJob)); video = db.get(Video, job.video_id)
+    assert release_reserved_acquisition(second.id, '10000', 'FETCH_MP4_FAILED', db) == {'released': False}
+    assert job.status == 'reserved' and video.enrichment_analysis_id == first.id
+
+
+def test_browser_failure_endpoint_accepts_only_safe_code_and_is_idempotent(db):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.db import get_db
+    a = create_analysis(db, payload((39.,), [100])); db.commit()
+    def session(): yield db
+    app.dependency_overrides[get_db] = session
+    try:
+        client = TestClient(app)
+        path = f'/api/v1/analyses/{a.id}/videos/10000/acquisition-failure'
+        assert client.post(path, json={'code':'DECODE_FAILED'}).json() == {'released': True}
+        assert client.post(path, json={'code':'DECODE_FAILED'}).json() == {'released': False}
+        rejected = client.post(path, json={'code':'DECODE_FAILED','headers':'secret'})
+        assert rejected.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_publish_failure_and_reconciliation(db):

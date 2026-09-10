@@ -84,3 +84,9 @@ class AnalysisInput(StrictModel):
         if any(v.author.lower() != self.profile.username.lower() for v in self.videos):
             raise ValueError('All video authors must match profile.username')
         return self
+
+
+class BrowserAcquisitionFailure(StrictModel):
+    """Safe, browser-originated reason for abandoning a reserved acquisition."""
+    code: Literal['FETCH_MP4_VIDEO_NOT_AVAILABLE', 'FETCH_MP4_FAILED', 'DECODE_FAILED',
+                  'WAV_FAILED', 'HANDOFF_FAILED', 'HTTP_UPLOAD_FAILED']

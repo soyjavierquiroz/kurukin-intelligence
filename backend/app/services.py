@@ -210,10 +210,18 @@ def claim_video(db, video_id, analysis_id):
 
 def reserve_for_analysis(db, video, analysis, snapshot=None):
     """Claim a global video once and attach only a lightweight session reference."""
-    if db.scalar(select(AnalysisAcquisition.id).where(
+    acquisition = db.scalar(select(AnalysisAcquisition).where(
             AnalysisAcquisition.analysis_id == analysis.id,
-            AnalysisAcquisition.video_id == video.id)):
-        return False
+            AnalysisAcquisition.video_id == video.id))
+    if acquisition is not None:
+        # A browser-reported pre-audio failure leaves this lightweight
+        # association in place.  Reclaim its expired job without duplicating
+        # the association or inflating the analysis request count.
+        job = db.scalar(select(TranscriptionJob).where(TranscriptionJob.video_id == video.id))
+        if job is None or job.status != 'expired' or not claim_video(db, video.id, analysis.id):
+            return False
+        db.expire(video)
+        return True
     if not claim_video(db, video.id, analysis.id):
         return False
     rank = analysis.requested_transcripts + 1

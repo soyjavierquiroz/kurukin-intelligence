@@ -1,5 +1,26 @@
 > Documento del milestone síncrono 0.1.x. Para 0.2.0 consultar [revisión Phase 2A](phase-2a-review.md) y [arquitectura](architecture.md). No ejecutar los pasos históricos como procedimiento de migración 0.2.0.
 
+## Auditoría incremental 0.4.1 (solo lectura)
+
+Tras un scan real iniciado desde la extensión, el operador puede guardar un
+baseline local y compararlo sin llamar a TikTok ni modificar PostgreSQL,
+RabbitMQ o la API. El auditor usa la misma configuración validada del backend
+(`DATABASE_URL_FILE` en producción) y nunca muestra su valor.
+
+```bash
+cd backend
+python ops/validate_incremental_corpus.py baseline --output /tmp/kurukin-incremental-baseline.json
+# Ejecutar el scan real desde la extensión; este script no lo inicia.
+python ops/validate_incremental_corpus.py compare /tmp/kurukin-incremental-baseline.json
+```
+
+Ejecutarlo donde ya esté disponible el secreto/configuración del backend (por
+ejemplo, dentro del contenedor API con el código del repo accesible). No requiere
+migración ni despliegue. `compare` termina en `RESULT: PASS` o `RESULT: FAIL` y
+enumera las invariantes fallidas A--I. El JSON conserva únicamente contadores e
+IDs internos de transcript/assessment para detectar desapariciones; no guarda
+texto, audio, URLs ni secretos.
+
 # Validación de esta iteración
 
 Fecha: 2026-09-09.
