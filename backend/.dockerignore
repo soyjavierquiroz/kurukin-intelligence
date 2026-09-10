@@ -1,0 +1,9 @@
+*
+!requirements.txt
+!app/
+!app/**
+!alembic.ini
+!alembic/
+!alembic/**
+**/__pycache__
+**/*.pyc

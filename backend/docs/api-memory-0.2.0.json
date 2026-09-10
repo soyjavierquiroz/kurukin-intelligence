@@ -1,0 +1,7 @@
+{
+  "api_import_max_rss_mib": 65.87890625,
+  "two_multipart_requests_max_rss_mib": 163.3046875,
+  "wav_bytes_each": 9216044,
+  "whisper_imported": false,
+  "cgroup_memory_peak_bytes": "158240768"
+}

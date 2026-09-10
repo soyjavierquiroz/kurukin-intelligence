@@ -1,0 +1,52 @@
+node_modules/
+*.tmp
+.DS_Store
+__pycache__/
+*.pyc
+.env
+.env.*
+.venv/
+.pytest_cache/
+*.log
+.kurukin-tiktok-db-url
+backend/data/
+.local-fixtures/
+
+# ============================================================
+# Kurukin Intelligence - local/runtime artifacts
+# ============================================================
+
+# Python
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local validation / fixtures
+.local-fixtures/
+.local-validation/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Built extension artifacts
+kurukin-extension*.zip
+
+# Deployment backups
+stack.yml.pre-*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.gitignore.pre-git-bootstrap
+
+# Third-party reference implementation - local only
+reference/myfavett-1.12.63/

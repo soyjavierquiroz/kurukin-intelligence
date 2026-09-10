@@ -1,0 +1,117 @@
+version: '3.8'
+services:
+  api:
+    image: kurukin-tiktok-api:0.4.0
+    networks:
+      - general_network
+      - traefik_public
+    secrets:
+      - source: kurukin_tiktok_database_url_v1
+        target: kurukin_tiktok_database_url
+        mode: 0400
+      - source: kurukin_tiktok_rabbitmq_url_v1
+        target: kurukin_tiktok_rabbitmq_url
+        mode: 0400
+    environment:
+      DATABASE_URL_FILE: /run/secrets/kurukin_tiktok_database_url
+      ACQUISITION_BATCH_SIZE: '10'
+      AUDIO_QUEUE_MAX_BYTES: '3221225472'
+      AUDIO_QUEUE_MIN_FREE_BYTES: '5368709120'
+      AUDIO_QUEUE_MAX_JOBS: '2000'
+      FAILED_AUDIO_RETENTION_HOURS: '24'
+      RABBITMQ_URL_FILE: /run/secrets/kurukin_tiktok_rabbitmq_url
+      MIN_TRANSCRIBE_DURATION_SECONDS: '8'
+      AUTO_TRANSCRIBE_MAX_DURATION_SECONDS: '180'
+      HARD_TRANSCRIBE_MAX_DURATION_SECONDS: '300'
+      HIGH_VALUE_OUTLIER_THRESHOLD: '2.0'
+      ENRICHMENT_LEASE_SECONDS: '1800'
+      MAX_AUDIO_MB: '10'
+    volumes:
+      - kurukin_tiktok_audio_queue:/data/audio-queue
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    stop_grace_period: 30s
+    deploy:
+      labels:
+        - 'traefik.enable=true'
+        - 'traefik.docker.network=traefik_public'
+        - 'traefik.http.routers.kurukin-tiktok-api.rule=Host(`intelligence.kuruk.in`) && (PathPrefix(`/api/`) || Path(`/health`))'
+        - 'traefik.http.routers.kurukin-tiktok-api.entrypoints=websecure'
+        - 'traefik.http.routers.kurukin-tiktok-api.tls=true'
+        - 'traefik.http.routers.kurukin-tiktok-api.tls.certresolver=le'
+        - 'traefik.http.routers.kurukin-tiktok-api.middlewares=kurukin-tiktok-api-ratelimit'
+        - 'traefik.http.middlewares.kurukin-tiktok-api-ratelimit.ratelimit.average=2'
+        - 'traefik.http.middlewares.kurukin-tiktok-api-ratelimit.ratelimit.burst=10'
+        - 'traefik.http.services.kurukin-tiktok-api.loadbalancer.server.port=8000'
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == HughesDocker2026
+      update_config:
+        order: stop-first
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 256M
+  whisper-worker:
+    image: kurukin-tiktok-api:0.4.0
+    command: [python, -m, app.workers.whisper]
+    networks: [general_network]
+    secrets:
+      - source: kurukin_tiktok_database_url_v1
+        target: kurukin_tiktok_database_url
+        mode: 0400
+      - source: kurukin_tiktok_rabbitmq_url_v1
+        target: kurukin_tiktok_rabbitmq_url
+        mode: 0400
+    environment:
+      DATABASE_URL_FILE: /run/secrets/kurukin_tiktok_database_url
+      RABBITMQ_URL_FILE: /run/secrets/kurukin_tiktok_rabbitmq_url
+      WHISPER_MODEL: small
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_CONCURRENCY: '1'
+      WHISPER_CPU_THREADS: '2'
+      WHISPER_TIMEOUT_SECONDS: '300'
+      WHISPER_CACHE_DIR: /models/huggingface
+      TRANSCRIPTION_MAX_ATTEMPTS: '3'
+      AUDIO_GATE_MODE: observe
+    volumes:
+      - kurukin_tiktok_audio_queue:/data/audio-queue
+      - kurukin_tiktok_whisper_cache:/models/huggingface
+    stop_grace_period: 330s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == HughesDocker2026
+      update_config:
+        order: stop-first
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          memory: 512M
+
+networks:
+  general_network:
+    external: true
+  traefik_public:
+    external: true
+secrets:
+  kurukin_tiktok_rabbitmq_url_v1:
+    external: true
+  kurukin_tiktok_database_url_v1:
+    external: true
+volumes:
+  kurukin_tiktok_whisper_cache:
+    name: kurukin_tiktok_whisper_cache
+  kurukin_tiktok_audio_queue:
+    name: kurukin_tiktok_audio_queue

@@ -1,0 +1,74 @@
+{
+  "manifest_version": 3,
+  "name": "Kurukin TikTok Collector v0.8.3",
+  "version": "0.8.3",
+  "minimum_chrome_version": "111",
+  "description": "Analiza publicaciones del perfil TikTok visitado desde un panel lateral local.",
+  "action": {
+    "default_title": "Kurukin — abrir/cerrar panel en TikTok"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.tiktok.com/*"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "js": [
+        "lib/security.js",
+        "lib/normalizer.js",
+        "lib/protocol.js",
+        "page/context.js",
+        "page/author-items.js",
+        "page/audio.js",
+        "page/bridge.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://www.tiktok.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "lib/security.js",
+        "lib/protocol.js",
+        "lib/wav-handoff.js",
+        "lib/acquisition.js",
+        "lib/audio-diagnostic.js",
+        "content/content.js"
+      ],
+      "css": [
+        "content/sidebar.css"
+      ]
+    }
+  ],
+  "host_permissions": [
+    "https://intelligence.kuruk.in/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://www.tiktok.com/*"
+      ],
+      "resources": [
+        "panel/index.html",
+        "lib/vad/ort-wasm-simd-threaded.wasm",
+        "lib/vad/ort-wasm-simd-threaded.mjs",
+        "lib/vad/silero-vad-legacy.onnx",
+        "lib/vad/ort-wasm-1.22.0.min.js",
+        "lib/vad/vad-web-0.0.29.min.js",
+        "lib/audio-classifier/yamnet.onnx",
+        "lib/audio-classifier/yamnet_class_map.csv",
+        "lib/audio-classifier/classifier.js",
+        "page/speech.js"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; connect-src https://intelligence.kuruk.in"
+  },
+  "short_name": "Kurukin v0.8.3"
+}

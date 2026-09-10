@@ -1,0 +1,93 @@
+from functools import lru_cache
+from pathlib import Path
+from typing import Literal
+from pydantic import AliasChoices, Field, SecretStr, model_validator, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+
+class DatabaseConfigurationError(RuntimeError):
+    pass
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(extra='ignore', hide_input_in_errors=True)
+    database_url_file: str | None = Field(None, repr=False)
+    database_url: SecretStr | None = Field(None, repr=False)
+    acquisition_batch_size: int = Field(10, ge=1, le=500, validation_alias=AliasChoices('ACQUISITION_BATCH_SIZE', 'acquisition_batch_size', 'INITIAL_ENRICHMENT_BUDGET', 'TOP_TRANSCRIPTS', 'initial_enrichment_budget'))
+    min_transcribe_duration_seconds: float = Field(8, ge=0, allow_inf_nan=False)
+    auto_transcribe_max_duration_seconds: float = Field(180, gt=0, allow_inf_nan=False)
+    hard_transcribe_max_duration_seconds: float = Field(300, gt=0, allow_inf_nan=False)
+    high_value_outlier_threshold: float = Field(2.0, ge=0, allow_inf_nan=False)
+    enrichment_lease_seconds: int = Field(1800, ge=60, le=86400)
+
+    audio_queue_dir: str = '/data/audio-queue'
+    audio_queue_max_bytes: int = Field(3 * 1024**3, gt=0)
+    audio_queue_min_free_bytes: int = Field(5 * 1024**3, ge=0)
+    audio_queue_max_jobs: int = Field(2000, gt=0)
+    failed_audio_retention_hours: int = Field(24, ge=1)
+    reconciliation_interval_seconds: int = Field(60, ge=10)
+    transcription_max_attempts: int = Field(3, ge=1)
+    rabbitmq_url_file: str | None = Field(None, repr=False)
+    rabbitmq_url: SecretStr | None = Field(None, repr=False)
+
+    @property
+    def initial_enrichment_budget(self):
+        return self.acquisition_batch_size
+
+    def resolve_rabbitmq_url(self):
+        from urllib.parse import urlsplit, unquote
+        try:
+            value = (Path(self.rabbitmq_url_file).read_text().strip() if self.rabbitmq_url_file
+                     else self.rabbitmq_url.get_secret_value() if self.rabbitmq_url else '')
+            url = urlsplit(value)
+            if (url.scheme != 'amqp' or url.hostname != 'rabbit_mq' or url.port != 5672
+                    or url.username != 'kurukin_tiktok' or not url.password
+                    or unquote(url.path) != '//kurukin-tiktok' or url.query or url.fragment):
+                raise ValueError()
+            return value
+        except Exception:
+            raise RuntimeError('RabbitMQ configuration missing or invalid') from None
+
+    @model_validator(mode='after')
+    def duration_limits(self):
+        if not self.min_transcribe_duration_seconds <= self.auto_transcribe_max_duration_seconds <= self.hard_transcribe_max_duration_seconds:
+            raise ValueError('Duration limits must satisfy min <= auto <= hard')
+        return self
+
+    max_audio_mb: int = Field(10, ge=1, le=100)
+    whisper_model: Literal['base', 'small', 'medium'] = 'small'
+    whisper_device: Literal['cpu'] = 'cpu'
+    whisper_compute_type: Literal['int8'] = 'int8'
+    whisper_concurrency: Literal[1] = 1
+    @field_validator('whisper_concurrency', mode='before')
+    @classmethod
+    def strict_single_concurrency(cls, value):
+        if type(value) is str and value == '1':
+            return 1
+        if type(value) is int and value == 1:
+            return value
+        raise ValueError('Whisper concurrency must be exactly 1')
+
+    whisper_timeout_seconds: int = Field(300, ge=1, le=3600)
+    whisper_cpu_threads: int = Field(2, ge=1, le=16)
+    whisper_cache_dir: str = '/models/huggingface'
+    audio_gate_mode: Literal['observe', 'enforce'] = 'observe'
+
+    def resolve_database_url(self):
+        try:
+            if self.database_url_file is not None:
+                value = Path(self.database_url_file).read_text().strip()
+            else:
+                value = self.database_url.get_secret_value() if self.database_url else ''
+            url = make_url(value)
+            if (url.drivername != 'postgresql+psycopg' or url.host != 'postgres'
+                    or url.port != 5432 or url.database != 'kurukin_tiktok'
+                    or url.username != 'kurukin_tiktok' or not url.password
+                    or url.query or any(c.isspace() for c in value)):
+                raise ValueError()
+            return url
+        except Exception:
+            raise DatabaseConfigurationError('Database configuration missing or invalid') from None
+
+@lru_cache
+def get_settings():
+    return Settings()
