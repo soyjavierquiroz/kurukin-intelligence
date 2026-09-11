@@ -129,15 +129,33 @@ def test_expired_reacquires_same_job(db):
     assert analysis_response(db, second)['enrichment_requests']
 
 
-def test_browser_failure_releases_reserved_job_and_later_batch_reclaims_it(db):
+def test_unavailable_video_browser_failure_releases_lease_but_cools_down_reclaim(db):
     a = create_analysis(db, payload((39.,), [100])); db.commit()
     job = db.scalar(select(TranscriptionJob)); video = db.get(Video, job.video_id)
+    original_job_id = job.id
     assert release_reserved_acquisition(a.id, '10000', 'FETCH_MP4_VIDEO_NOT_AVAILABLE', db) == {'released': True}
     assert job.status == 'expired' and job.last_error_code == 'FETCH_MP4_VIDEO_NOT_AVAILABLE'
     assert video.enrichment_status == 'expired' and video.enrichment_analysis_id is None
     assert video.enrichment_lease_until is None
     response = acquisition_batch(db, a.id)
+    assert job.status == 'expired' and video.enrichment_analysis_id is None
+    assert response['enrichment_requests'] == []
+
+    job.updated_at = now() - timedelta(hours=24, seconds=1)
+    db.commit()
+    response = acquisition_batch(db, a.id)
     assert job.status == 'reserved' and video.enrichment_analysis_id == a.id
+    assert job.id == original_job_id
+    assert db.scalar(select(func.count()).select_from(TranscriptionJob)) == 1
+    assert any(request['tiktok_id'] == '10000' for request in response['enrichment_requests'])
+
+
+def test_other_browser_failure_code_reclaims_expired_job_without_cooldown(db):
+    a = create_analysis(db, payload((39.,), [100])); db.commit()
+    job = db.scalar(select(TranscriptionJob)); original_job_id = job.id
+    assert release_reserved_acquisition(a.id, '10000', 'FETCH_MP4_FAILED', db) == {'released': True}
+    response = acquisition_batch(db, a.id)
+    assert job.id == original_job_id and job.status == 'reserved'
     assert any(request['tiktok_id'] == '10000' for request in response['enrichment_requests'])
 
 

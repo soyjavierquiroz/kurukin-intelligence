@@ -11,6 +11,9 @@ from .models import (Analysis, AnalysisAcquisition, AudioAssessment, Channel, Tr
 from .ranking import rank_snapshots, rank_videos
 
 
+ACQUISITION_VIDEO_NOT_AVAILABLE_COOLDOWN = timedelta(hours=24)
+
+
 def lock_ingest(db, username, tiktok_user_id=None):
     if db.bind.dialect.name == 'postgresql':
         # Take both known identity locks in a deterministic order.  This closes
@@ -190,6 +193,16 @@ def claim_video(db, video_id, analysis_id):
     result = db.execute(update(Video).where(Video.id == video_id,
         or_(Video.enrichment_lease_until.is_(None), Video.enrichment_lease_until <= current),
         ~exists(select(Transcript.id).where(Transcript.video_id == Video.id)),
+        # A browser-confirmed unavailable MP4 is likely transient, but retrying
+        # it immediately creates a reservation/failure loop.  updated_at is
+        # explicitly recorded by release_reserved_acquisition on that exact
+        # reserved -> expired transition, including rows created before this
+        # cooldown was introduced.
+        ~exists(select(TranscriptionJob.id).where(
+            TranscriptionJob.video_id == Video.id,
+            TranscriptionJob.status == 'expired',
+            TranscriptionJob.last_error_code == 'FETCH_MP4_VIDEO_NOT_AVAILABLE',
+            TranscriptionJob.updated_at > current - ACQUISITION_VIDEO_NOT_AVAILABLE_COOLDOWN)),
         ~exists(select(TranscriptionJob.id).where(TranscriptionJob.video_id == Video.id,
             TranscriptionJob.status.in_(('audio_received', 'queued', 'processing', 'completed', 'failed', 'skipped')))))
         .values(enrichment_status='requested', enrichment_analysis_id=analysis_id,
