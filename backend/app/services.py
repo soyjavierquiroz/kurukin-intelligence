@@ -77,6 +77,20 @@ def global_ranked_videos(db, channel_id):
                           for video, snapshot, rates in ranked]
 
 
+def analysis_ranked_videos(db, analysis):
+    """Global ranking, restricted to videos the browser saw in this analysis.
+
+    VideoSnapshot is the durable analysis -> scanned-video membership record.
+    Ranking still uses each video's latest channel-wide observation; only the
+    set that may be reserved for browser acquisition is narrowed here.
+    """
+    scanned_video_ids = set(db.scalars(select(VideoSnapshot.video_id).where(
+        VideoSnapshot.analysis_id == analysis.id)))
+    _, ranked = global_ranked_videos(db, analysis.channel_id)
+    return [(video, snapshot, rates, transcript) for video, snapshot, rates, transcript in ranked
+            if video.id in scanned_video_ids]
+
+
 def lease_active(video):
     expiry = video.enrichment_lease_until
     if expiry is not None and expiry.tzinfo is None:
@@ -151,23 +165,6 @@ def analysis_response(db, analysis):
                 transcription_rank=transcription_rank,
                 priority=dict(outlier_score=float(s.outlier_score), engagement_rate=float(s.engagement_rate)),
                 needs_audio=True))
-    # An incremental analysis can reserve a best pending video discovered by an
-    # earlier scan.  It is global data, so derive its latest metrics instead of
-    # copying a snapshot into this analysis.
-    seen_request_ids = {item['tiktok_id'] for item in requests}
-    _, ranked = global_ranked_videos(db, analysis.channel_id)
-    latest_by_video = {video.id: (snapshot, rates) for video, snapshot, rates, _ in ranked}
-    for acquisition, video, transcript in acquisitions:
-        job = jobs.get(video.id)
-        if (video.tiktok_id in seen_request_ids or transcript is not None or job is None
-                or job.status != 'reserved' or video.enrichment_analysis_id != analysis.id
-                or not lease_active(video)):
-            continue
-        snapshot, rates = latest_by_video[video.id]
-        requests.append(dict(tiktok_id=video.tiktok_id, url=video.url, job_id=str(job.id),
-            transcription_rank=acquisition.transcription_rank,
-            priority=dict(outlier_score=float(rates['outlier_score']),
-                          engagement_rate=float(rates['engagement_rate'])), needs_audio=True))
     channel = db.get(Channel, analysis.channel_id)
     channel_coverage = dict(username=channel.username, tiktok_user_id=channel.tiktok_user_id,
                             **coverage(db, channel.id))
@@ -340,7 +337,7 @@ def create_analysis(db, payload):
             snapshot.overall_rank = rank
             for key, value in rates.items():
                 setattr(snapshot, key, value)
-    for video, latest, _rates, transcript in global_ranked:
+    for video, latest, _rates, transcript in analysis_ranked_videos(db, analysis):
         if analysis.requested_transcripts >= get_settings().acquisition_batch_size:
             break
         if transcript is None and eligibility(video.duration)[0]:
@@ -360,7 +357,7 @@ def acquisition_batch(db, analysis_id):
         remaining = get_settings().acquisition_batch_size - len(existing)
         snapshots = {snapshot.video_id: snapshot for snapshot in db.scalars(select(VideoSnapshot).where(
             VideoSnapshot.analysis_id == analysis_id))}
-        _, rows = global_ranked_videos(db, analysis.channel_id)
+        rows = analysis_ranked_videos(db, analysis)
         for video, _snapshot, _rates, transcript in rows:
             if remaining <= 0:
                 break

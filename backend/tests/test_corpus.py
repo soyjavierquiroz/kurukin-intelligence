@@ -6,9 +6,9 @@ import wave
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select, func
-from app.models import AnalysisAcquisition, Channel, Video, VideoSnapshot, Transcript, now
+from app.models import AnalysisAcquisition, Channel, TranscriptionJob, Video, VideoSnapshot, Transcript, now
 from app.schemas import AnalysisInput, SENSITIVE
-from app.services import create_analysis, analysis_response, eligibility, coverage, claim_video
+from app.services import acquisition_batch, create_analysis, analysis_response, eligibility, coverage, claim_video
 from app.main import process_audio
 from app.ranking import rank_videos
 from app import audio
@@ -44,6 +44,25 @@ def wav(seconds=8):
     return buf.getvalue()
 
 
+def scoped_payload(ids, durations=None, views=None):
+    durations = durations or [39.] * len(ids)
+    views = views or [100] * len(ids)
+    data = payload(tuple(durations), views).model_dump()
+    for item, tiktok_id in zip(data['videos'], ids):
+        item['id'] = tiktok_id
+        item['url'] = f'https://www.tiktok.com/@creator/video/{tiktok_id}'
+    return AnalysisInput.model_validate(data)
+
+
+def expire_reservations(db):
+    for video in db.scalars(select(Video)):
+        video.enrichment_lease_until = now() - timedelta(seconds=1)
+    for job in db.scalars(select(TranscriptionJob)):
+        job.status = 'expired'
+        job.last_error_code = None
+    db.flush()
+
+
 @pytest.mark.parametrize('duration,expected', [(7,(False,'too_short')), (8,(True,None)),
     (180,(True,None)), (181,(False,'long_form')), (300,(False,'long_form')),
     (301,(False,'long_form')), (None,(False,'unknown_duration'))])
@@ -65,6 +84,62 @@ def test_global_reuse_and_budget(db, monkeypatch):
     assert response['top_videos'][0]['transcript'] == 'Valid global transcript'
     assert response['channel']['transcripts_available'] == 3
     assert response['channel']['transcript_coverage'] == 3/5
+    assert first.id != second.id
+
+
+def test_acquisition_batch_never_falls_back_to_higher_ranked_global_video(db):
+    # B is the global outlier, but this browser scan only supplied A.
+    create_analysis(db, scoped_payload(['10000', '10001', '10002'], views=[10, 1_000_000, 100]))
+    expire_reservations(db)
+    current = create_analysis(db, scoped_payload(['10000'], views=[10]))
+
+    response = acquisition_batch(db, current.id)
+
+    assert [request['tiktok_id'] for request in response['enrichment_requests']] == ['10000']
+    assert db.scalar(select(AnalysisAcquisition).where(
+        AnalysisAcquisition.analysis_id == current.id,
+        AnalysisAcquisition.video_id == db.scalar(select(Video.id).where(Video.tiktok_id == '10001')))) is None
+
+
+def test_acquisition_batch_scopes_to_scan_then_applies_global_rules(db):
+    # C and D remain in the channel corpus but are not candidates for this scan.
+    create_analysis(db, scoped_payload(['10002', '10003'], views=[1_000_000, 500_000]))
+    expire_reservations(db)
+    current = create_analysis(db, scoped_payload(['10000', '10001'], durations=[7., 39.], views=[1, 2]))
+
+    response = acquisition_batch(db, current.id)
+
+    assert [request['tiktok_id'] for request in response['enrichment_requests']] == ['10001']
+
+
+def test_acquisition_batch_returns_empty_when_scan_has_no_acquirable_video(db):
+    create_analysis(db, scoped_payload(['10001', '10002'], views=[1_000_000, 500_000]))
+    expire_reservations(db)
+    current = create_analysis(db, scoped_payload(['10000'], durations=[7.], views=[1]))
+
+    response = acquisition_batch(db, current.id)
+
+    assert response['enrichment_requests'] == []
+    assert db.scalars(select(AnalysisAcquisition).where(
+        AnalysisAcquisition.analysis_id == current.id)).all() == []
+
+
+def test_scanned_video_with_global_transcript_is_not_reserved_and_assets_are_shared(db):
+    first = create_analysis(db, scoped_payload(['10000']))
+    video = db.scalar(select(Video).where(Video.tiktok_id == '10000'))
+    job = db.scalar(select(TranscriptionJob).where(TranscriptionJob.video_id == video.id))
+    complete(db, video)
+    expire_reservations(db)
+
+    second = create_analysis(db, scoped_payload(['10000']))
+    response = acquisition_batch(db, second.id)
+
+    assert response['enrichment_requests'] == []
+    assert db.scalar(select(func.count()).select_from(Video)) == 1
+    assert db.scalar(select(func.count()).select_from(TranscriptionJob)) == 1
+    assert db.get(TranscriptionJob, job.id).video_id == video.id
+    assert db.scalars(select(AnalysisAcquisition).where(
+        AnalysisAcquisition.analysis_id == second.id)).all() == []
     assert first.id != second.id
 
 
@@ -239,7 +314,7 @@ def test_incremental_scan_counts_metrics_history_and_stable_channel_identity(db)
     assert first.id != second.id
 
 
-def test_global_gap_selection_uses_pending_videos_from_prior_scans(db, monkeypatch):
+def test_global_gap_selection_does_not_reserve_pending_videos_from_prior_scans(db, monkeypatch):
     monkeypatch.setenv('ACQUISITION_BATCH_SIZE', '10')
     first = create_analysis(db, payload(tuple(float(20 + i) for i in range(15)),
                                         list(range(1_500, 0, -100))))
@@ -254,10 +329,9 @@ def test_global_gap_selection_uses_pending_videos_from_prior_scans(db, monkeypat
     response = analysis_response(db, second)
     requested = {request['tiktok_id'] for request in response['enrichment_requests']}
     assert response['channel']['videos_known'] == 15
-    assert len(requested) == 5
-    assert requested.isdisjoint({'10000'})
+    assert requested == set()
     assert db.scalar(select(func.count()).select_from(AnalysisAcquisition).where(
-        AnalysisAcquisition.analysis_id == second.id)) == 5
+        AnalysisAcquisition.analysis_id == second.id)) == 0
 
 
 def test_scan_of_45_existing_and_5_new_preserves_global_video_count(db):

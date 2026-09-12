@@ -11,7 +11,7 @@ from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings, Settings
-from app.models import AudioAssessment, TranscriptionJob, Transcript, Video, now
+from app.models import AnalysisAcquisition, AudioAssessment, TranscriptionJob, Transcript, Video, now
 from app.services import create_analysis, acquisition_batch, analysis_response
 from app.jobs import (receive_audio, requeue_pending_jobs, cleanup_audio, inbox_lock, capacity,
                       atomic_store, job_path, release_reserved_acquisition)
@@ -140,6 +140,7 @@ def test_unavailable_video_browser_failure_releases_lease_but_cools_down_reclaim
     response = acquisition_batch(db, a.id)
     assert job.status == 'expired' and video.enrichment_analysis_id is None
     assert response['enrichment_requests'] == []
+    assert db.scalar(select(func.count()).select_from(AnalysisAcquisition)) == 1
 
     job.updated_at = now() - timedelta(hours=24, seconds=1)
     db.commit()
@@ -147,6 +148,7 @@ def test_unavailable_video_browser_failure_releases_lease_but_cools_down_reclaim
     assert job.status == 'reserved' and video.enrichment_analysis_id == a.id
     assert job.id == original_job_id
     assert db.scalar(select(func.count()).select_from(TranscriptionJob)) == 1
+    assert db.scalar(select(func.count()).select_from(AnalysisAcquisition)) == 1
     assert any(request['tiktok_id'] == '10000' for request in response['enrichment_requests'])
 
 
