@@ -170,7 +170,18 @@ def process_job(db, job_id, video_id, service=whisper_service, classifier=yamnet
         db.commit()
         result = service.transcribe(path)
         if not result.get('text', '').strip():
-            raise RuntimeError('Empty transcript')
+            video = db.scalar(select(Video).where(Video.id == video_id).with_for_update())
+            job = db.scalar(select(TranscriptionJob).where(TranscriptionJob.id == job_id).with_for_update())
+            job.status = 'skipped'
+            job.skip_reason = 'no_speech'
+            job.completed_at = now()
+            job.last_error_code = None
+            video.enrichment_status = 'skipped'
+            video.enrichment_lease_until = None
+            db.commit()  # Terminal empty-transcript skip is durable before cleanup/ACK.
+            delete_audio(job)
+            db.commit()
+            return 'ack'
         video = db.scalar(select(Video).where(Video.id == video_id).with_for_update())
         job = db.scalar(select(TranscriptionJob).where(TranscriptionJob.id == job_id).with_for_update())
         if not db.scalar(select(Transcript.id).where(Transcript.video_id == video_id)):
@@ -182,6 +193,9 @@ def process_job(db, job_id, video_id, service=whisper_service, classifier=yamnet
         video.enrichment_lease_until = None
         db.commit()  # Transcript and completed are one transaction.
     except Exception as exc:
+        error_code = 'whisper_timeout' if isinstance(exc, TimeoutError) else 'transcription_failed'
+        log.warning('transcription_job_failure job_id=%s video_id=%s attempt=%s exception_class=%s error_code=%s',
+                    job_id, video_id, attempts, type(exc).__name__, error_code)
         db.rollback()
         video = db.scalar(select(Video).where(Video.id == video_id).with_for_update())
         job = db.scalar(select(TranscriptionJob).where(TranscriptionJob.id == job_id).with_for_update())
@@ -194,7 +208,7 @@ def process_job(db, job_id, video_id, service=whisper_service, classifier=yamnet
             delete_audio(job)
             db.commit()
             return 'ack'
-        job.last_error_code = 'whisper_timeout' if isinstance(exc, TimeoutError) else 'transcription_failed'
+        job.last_error_code = error_code
         terminal = job.attempts >= settings.transcription_max_attempts
         job.status = 'failed' if terminal else 'queued'
         video.enrichment_status = job.status

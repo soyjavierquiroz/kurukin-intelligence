@@ -1,5 +1,6 @@
 from datetime import timedelta
 import json
+import logging
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,6 +63,30 @@ def test_enforce_music_skips_after_persist_and_cleanup(db, received):
     assert db.scalar(select(AudioAssessment)).classification=='music' and not db.scalar(select(Transcript))
 
 
+@pytest.mark.parametrize('kind', ['music', 'speech'])
+def test_empty_whisper_transcript_skips_as_no_speech_independent_of_assessment(db, received, kind):
+    path = job_path(received)
+    calls = []
+    def empty_transcript(_):
+        calls.append(1)
+        return dict(text='  ', language='es', duration=8., model='small')
+
+    assert process_job(db, received.id, received.video_id,
+                       SimpleNamespace(transcribe=empty_transcript), classifier(kind),
+                       gate_settings('observe')) == 'ack'
+    db.expire_all()
+    job = db.get(TranscriptionJob, received.id)
+    video = db.get(Video, received.video_id)
+    assert job.status == 'skipped' and job.skip_reason == 'no_speech'
+    assert job.completed_at and job.assessment_id and job.attempts == 1
+    assert video.enrichment_status == 'skipped' and video.enrichment_lease_until is None
+    assert not db.scalar(select(Transcript)) and not path.exists() and job.audio_path is None
+    # A redelivery ACKs the terminal state without another Whisper attempt.
+    assert process_job(db, received.id, received.video_id,
+                       SimpleNamespace(transcribe=lambda _: pytest.fail('Unexpected retry'))) == 'ack'
+    assert calls == [1] and db.get(TranscriptionJob, received.id).attempts == 1
+
+
 @pytest.mark.parametrize('kind',['speech','mixed','ambiguous','singing'])
 def test_enforce_non_music_fails_open_to_whisper(db, received, kind):
     assert process_job(db,received.id,received.video_id,service(),classifier(kind),gate_settings('enforce'))=='ack'
@@ -84,6 +109,47 @@ def test_redelivery_reuses_committed_assessment_before_retrying_whisper(db, rece
     assert db.scalar(select(AudioAssessment)) and len(c.calls)==1
     assert process_job(db,received.id,received.video_id,SimpleNamespace(transcribe=asr),c,gate_settings('observe'))=='ack'
     assert len(c.calls)==1 and received.status=='completed'
+
+
+def test_real_whisper_error_retries_with_safe_observability(db, received, caplog):
+    class WhisperFailure(RuntimeError):
+        pass
+
+    def fail(_):
+        raise WhisperFailure('signed-url=secret transcript text')
+
+    with caplog.at_level(logging.WARNING, logger='kurukin.worker'):
+        assert process_job(db, received.id, received.video_id,
+                           SimpleNamespace(transcribe=fail)) == 'retry'
+    db.expire_all()
+    job = db.get(TranscriptionJob, received.id)
+    assert job.status == 'queued' and job.attempts == 1
+    assert job.last_error_code == 'transcription_failed'
+    assert f'job_id={received.id}' in caplog.text
+    assert f'video_id={received.video_id}' in caplog.text
+    assert 'attempt=1' in caplog.text and 'exception_class=WhisperFailure' in caplog.text
+    assert 'error_code=transcription_failed' in caplog.text
+    assert 'signed-url=secret transcript text' not in caplog.text
+
+
+def test_whisper_timeout_keeps_timeout_error_code(db, received):
+    assert process_job(db, received.id, received.video_id,
+                       SimpleNamespace(transcribe=lambda _: (_ for _ in ()).throw(TimeoutError()))) == 'retry'
+    db.expire_all()
+    job = db.get(TranscriptionJob, received.id)
+    assert job.status == 'queued' and job.attempts == 1 and job.last_error_code == 'whisper_timeout'
+
+
+def test_real_whisper_error_fails_at_existing_max_attempts(db, received):
+    def fail(_):
+        raise RuntimeError('transcription backend unavailable')
+
+    for attempt in range(1, 4):
+        outcome = process_job(db, received.id, received.video_id, SimpleNamespace(transcribe=fail))
+        assert outcome == ('ack' if attempt == 3 else 'retry')
+        assert received.attempts == attempt
+    assert received.status == 'failed' and received.failed_at
+    assert received.last_error_code == 'transcription_failed'
 
 
 def test_default_batch_and_legacy_alias():
