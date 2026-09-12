@@ -70,5 +70,5 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; connect-src https://intelligence.kuruk.in"
   },
-  "short_name": "Kurukin v0.8.3"
+  "short_name": "Kurukin v0.8.5"
 }

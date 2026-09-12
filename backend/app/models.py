@@ -129,6 +129,35 @@ class AudioAssessment(Identity, Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
+class ViralDNA(Identity, Base):
+    """Versioned deterministic features owned globally by a video."""
+    __tablename__ = 'viral_dna'
+    __table_args__ = (
+        UniqueConstraint('video_id', 'extractor_version', name='uq_viral_dna_video_extractor_version'),
+        CheckConstraint(
+            "semantic_status IN ('not_requested','pending','completed','skipped_no_transcript','failed')",
+            name='ck_viral_dna_semantic_status',
+        ),
+    )
+    # The composite unique constraint indexes video_id already, so a separate
+    # single-column index would be redundant.
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('videos.id'))
+    extractor_version: Mapped[str] = mapped_column(String(64))
+    deterministic_input_sha256: Mapped[str] = mapped_column(String(64))
+    duration_seconds: Mapped[float | None]
+    caption_present: Mapped[bool] = mapped_column(Boolean)
+    caption_char_count: Mapped[int] = mapped_column(Integer)
+    transcript_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('transcripts.id'))
+    transcript_word_count: Mapped[int | None] = mapped_column(Integer)
+    transcript_duration_seconds: Mapped[float | None]
+    words_per_second: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    audio_assessment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey('audio_assessments.id'), index=True
+    )
+    semantic_status: Mapped[str] = mapped_column(String(32))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
 class TranscriptionJob(Identity, Base):
     __tablename__ = 'transcription_jobs'
     __table_args__ = (

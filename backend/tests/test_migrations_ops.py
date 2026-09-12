@@ -36,7 +36,11 @@ def test_initial_migration_matches_metadata_and_downgrade():
             spec5=importlib.util.spec_from_file_location('global_incremental_channel_corpus', ROOT/'alembic/versions/0005_global_incremental_channel_corpus.py')
             fifth=importlib.util.module_from_spec(spec5); spec5.loader.exec_module(fifth)
             fifth.upgrade()
+            spec6=importlib.util.spec_from_file_location('viral_dna', ROOT/'alembic/versions/0006_viral_dna.py')
+            sixth=importlib.util.module_from_spec(spec6); spec6.loader.exec_module(sixth)
+            sixth.upgrade()
             assert compare_metadata(context, Base.metadata) == []
+            sixth.downgrade()
             fifth.downgrade()
             fourth.downgrade()
             third.downgrade()
@@ -102,6 +106,32 @@ def test_0004_to_0005_preserves_corpus_and_backfills_acquisition_reference():
             assert connection.scalar(text("SELECT videos_new FROM analyses WHERE id = :analysis"), values) == 0
 
 
+def test_0005_to_0006_preserves_existing_corpus_and_downgrades_only_viral_dna():
+    def migration(name):
+        spec = importlib.util.spec_from_file_location(name, ROOT/f'alembic/versions/{name}.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        return module
+    first, second, third, fourth, fifth, sixth = (migration(name) for name in (
+        '0001_global_corpus', '0002_async_transcription_jobs', '0003_audio_assessment',
+        '0004_video_music_metadata', '0005_global_incremental_channel_corpus', '0006_viral_dna'))
+    with create_engine('sqlite://').begin() as connection:
+        context = MigrationContext.configure(connection)
+        with Operations.context(context):
+            first.upgrade(); second.upgrade(); third.upgrade(); fourth.upgrade(); fifth.upgrade()
+            tables_before = set(inspect(connection).get_table_names())
+            sixth.upgrade()
+            assert set(inspect(connection).get_table_names()) == tables_before | {'viral_dna'}
+            columns = {column['name'] for column in inspect(connection).get_columns('viral_dna')}
+            assert columns == {
+                'id', 'video_id', 'extractor_version', 'deterministic_input_sha256',
+                'duration_seconds', 'caption_present', 'caption_char_count', 'transcript_id',
+                'transcript_word_count', 'transcript_duration_seconds', 'words_per_second',
+                'audio_assessment_id', 'semantic_status', 'created_at', 'updated_at',
+            }
+            sixth.downgrade()
+            assert set(inspect(connection).get_table_names()) == tables_before
+
+
 def test_postgres_offline_sql_and_revision(monkeypatch):
     monkeypatch.setenv('DATABASE_URL', 'postgresql+psycopg://kurukin_tiktok:test-secret@postgres:5432/kurukin_tiktok')
     output=io.StringIO()
@@ -109,6 +139,7 @@ def test_postgres_offline_sql_and_revision(monkeypatch):
     sql=output.getvalue()
     assert 'CREATE TABLE channels' in sql and 'CREATE TABLE transcripts' in sql
     assert 'UNIQUE (video_id)' in sql and 'UNIQUE (tiktok_id)' in sql
+    assert 'CREATE TABLE viral_dna' in sql and 'uq_viral_dna_video_extractor_version' in sql
     assert 'test-secret' not in sql and 'n8n_v2_data' not in sql
 
 

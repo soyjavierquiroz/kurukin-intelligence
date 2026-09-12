@@ -2,7 +2,7 @@
 
 # Operación Swarm — ejecutar solo después de autorización
 
-El stack consta únicamente de `kurukin-tiktok_api`, imagen local `kurukin-tiktok-api:0.1.0`, una réplica y un proceso uvicorn en `0.0.0.0:8000`. No publica ports ni configura Traefik. La imagen no se sube a registry; al ser single-node está disponible localmente para Swarm.
+El stack consta únicamente de `kurukin-tiktok_api`, imagen local `kurukin-tiktok-api:0.5.0`, una réplica y un proceso uvicorn en `0.0.0.0:8000`. No publica ports ni configura Traefik. La imagen no se sube a registry; al ser single-node está disponible localmente para Swarm.
 
 ## Infraestructura existente
 
@@ -54,7 +54,7 @@ Secret Swarm externo: `kurukin_tiktok_database_url_v1`, target `/run/secrets/kur
    ```
 5. Construir imagen local (ya se probó el build; repetir si cambió el código):
    ```bash
-   docker build -t kurukin-tiktok-api:0.1.0 backend
+   docker build -t kurukin-tiktok-api:0.5.0 backend
    ```
 6. Desplegar el único stack de Kurukin:
    ```bash

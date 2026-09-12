@@ -35,7 +35,7 @@ async def lifespan(app):
             await task
 
 
-app = FastAPI(title='Kurukin backend', version='0.4.4', lifespan=lifespan)
+app = FastAPI(title='Kurukin backend', version='0.5.0', lifespan=lifespan)
 
 
 @app.exception_handler(HTTPException)
