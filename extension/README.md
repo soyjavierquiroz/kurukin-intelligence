@@ -1,4 +1,4 @@
-# Kurukin TikTok Collector 0.8.3
+# Kurukin TikTok Collector 0.8.5
 
 La ruta normal es deliberadamente estrecha:
 
