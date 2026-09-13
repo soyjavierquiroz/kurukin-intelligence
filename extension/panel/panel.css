@@ -21,6 +21,14 @@ button { font: inherit; color: inherit; background: #202738; border: 1px solid #
 button:disabled { opacity: .45; cursor: default; }
 .primary { background: #a79aff; color: #171226; border: 0; width: 100%; font-weight: 700; }
 #cancel { margin-top: 10px; width: 100%; }
+#auto-curator { border-top: 1px solid #2a3041; margin-top: 25px; padding-top: 16px; }
+#auto-curator h2 { font-size: 19px; margin: 0; }
+.auto-note { color: #9aa6bc; font-size: 12px; }
+#auto-channels { background: #171c28; border: 1px solid #343d53; border-radius: 8px; color: inherit; font: inherit; margin: 7px 0 10px; padding: 9px; resize: vertical; width: 100%; }
+.auto-actions { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; margin-bottom: 8px; }
+#auto-skip { width: 100%; }
+#auto-list { border-top: 1px solid #2a3041; font-size: 12px; margin-top: 12px; }
+.auto-row { border-bottom: 1px solid #222939; padding: 8px 0; }.auto-row span { color: #9aa6bc; display: block; overflow-wrap: anywhere; }
 #progress { margin: 24px 0; }
 progress { width: 100%; accent-color: #a79aff; height: 7px; }
 #total { font-size: 22px; margin: 10px 0; }
