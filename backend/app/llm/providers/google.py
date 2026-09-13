@@ -18,6 +18,7 @@ class GoogleSemanticProvider(RestSemanticProvider):
         self.capabilities = SemanticProviderCapabilities(native_json_schema=native, json_mode=True)
 
     def extract(self, payload: dict[str, str]) -> dict[str, object]:
+        self._begin_invocation()
         messages = semantic_messages(payload, include_schema=not self.capabilities.native_json_schema)
         request = {
             'systemInstruction': {'parts': [{'text': messages[0]['content']}]},

@@ -299,6 +299,16 @@ def test_contract_schema_is_final_transport_neutral_and_prompt_has_boundaries():
     assert 'reasoning' in SEMANTIC_PROMPT
 
 
+def test_semantic_prompt_has_provider_consistency_rules():
+    assert 'derive hook_text, hook_type, hook_mechanism, and hook_target from its opening spoken words' in SEMANTIC_PROMPT
+    assert 'never replace that hook with the caption' in SEMANTIC_PROMPT
+    assert 'Write every free-text field in the supplied language' in SEMANTIC_PROMPT
+    assert 'exact canonical English enum tokens without translating them' in SEMANTIC_PROMPT
+    assert 'set secondary to null unless a distinct clear second signal exists, and never repeat primary' in SEMANTIC_PROMPT
+    assert 'write only what has reasonable caption or transcript evidence; otherwise use null' in SEMANTIC_PROMPT
+    assert 'Never infer merely plausible objections, fears, audience identities, promises' in SEMANTIC_PROMPT
+
+
 def test_registry_resolves_an_injected_fake_adapter_without_core_provider_imports():
     config = SemanticProviderConfig(provider_name='registry-fake', model='model-a')
     register_semantic_provider('registry-fake', lambda received: FakeProvider(), replace=True)

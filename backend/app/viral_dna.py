@@ -35,13 +35,24 @@ from .yamnet import CLASSIFIER as CURRENT_CLASSIFIER, VERSION as CURRENT_CLASSIF
 
 EXTRACTOR_VERSION = 'viral-dna-v1'
 SEMANTIC_PROMPT_VERSION = 'viral-dna-semantic-v1'
-SEMANTIC_PROMPT = """Analyze only caption and transcript. Return exactly one JSON object matching the supplied closed schema, with no explanation or reasoning. Do not use popularity, performance, truth evaluation, visuals, channel-wide niche, Analysis, user, or private-business context. Describe only observable communication strategy. Do not invent intent: use null, unclear, unknown, or none_unclear as defined. Select one dominant primary; set secondary only when clearly relevant and never equal to primary. Normalize free text to short plain phrases; no markdown or lists. Never infer visual format."""
+SEMANTIC_PROMPT = """Analyze only caption and transcript. Return exactly one JSON object matching the supplied closed schema, with no explanation or reasoning. Do not use popularity, performance, truth evaluation, visuals, channel-wide niche, Analysis, user, or private-business context. Describe only observable communication strategy. When transcript is nonempty, derive hook_text, hook_type, hook_mechanism, and hook_target from its opening spoken words; never replace that hook with the caption. If no clear spoken hook exists, use null for hook_text and none_unclear for its hook enums. Write every free-text field in the supplied language; use exact canonical English enum tokens without translating them. For every primary/secondary pair, set secondary to null unless a distinct clear second signal exists, and never repeat primary. For nullable free text, write only what has reasonable caption or transcript evidence; otherwise use null. Never infer merely plausible objections, fears, audience identities, promises, or unobserved proof such as demonstration or personal_experience. Do not invent intent: use null, unclear, unknown, or none_unclear as defined. Normalize free text to short plain phrases; no markdown or lists. Never infer visual format."""
 WORD_PATTERN = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 LOGGER = logging.getLogger(__name__)
 
 
 class SemanticOutputValidationError(ValueError):
-    """A deliberately detail-free error used to avoid recording provider output."""
+    """A content-free validation error carrying only approved diagnostics."""
+
+    def __init__(self, validation_errors: tuple[dict[str, object], ...]) -> None:
+        # Do not put any provider value in the exception message: some callers
+        # deliberately log only ``str(error)``.
+        super().__init__('semantic_output_invalid')
+        self.validation_errors = validation_errors
+
+
+def _semantic_validation_error(field: str, code: str, /, **details: object) -> SemanticOutputValidationError:
+    """Build a diagnostic from contract metadata, never provider-supplied text."""
+    return SemanticOutputValidationError(({'field': field, 'code': code, **details},))
 
 
 @dataclass(frozen=True)
@@ -310,42 +321,65 @@ _MARKDOWN_OR_LIST = re.compile(r'(?:^|\n)\s*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+)|[`
 def _normalize_semantic_text(value: object, *, maximum_length: int) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or _MARKDOWN_OR_LIST.search(value):
-        raise SemanticOutputValidationError('semantic_output_invalid')
+    if not isinstance(value, str):
+        raise _semantic_validation_error('$', 'invalid_type')
+    if _MARKDOWN_OR_LIST.search(value):
+        raise _semantic_validation_error('$', 'invalid_text')
     normalized = ' '.join(value.split())
-    if not normalized or len(normalized) > maximum_length:
-        raise SemanticOutputValidationError('semantic_output_invalid')
+    if not normalized:
+        raise _semantic_validation_error('$', 'invalid_text')
+    if len(normalized) > maximum_length:
+        raise _semantic_validation_error(
+            '$', 'max_length', maximum_length=maximum_length, received_length=len(normalized)
+        )
     return normalized
 
 
 def validate_semantic_output(output: object) -> dict[str, str | None]:
     """Strictly validate and normalize the one Kurukin-owned response shape."""
-    if not isinstance(output, Mapping) or set(output) != set(SEMANTIC_OUTPUT_FIELDS):
-        raise SemanticOutputValidationError('semantic_output_invalid')
+    if not isinstance(output, Mapping):
+        raise _semantic_validation_error('$', 'invalid_object')
+    output_fields = set(output)
+    contract_fields = set(SEMANTIC_OUTPUT_FIELDS)
+    missing_fields = contract_fields - output_fields
+    extra_fields = output_fields - contract_fields
+    if missing_fields or extra_fields:
+        errors = tuple(
+            [{'field': field, 'code': 'missing'} for field in sorted(missing_fields)]
+            # An unexpected key is provider-controlled, so even its name is
+            # not safe to expose. The root path identifies this schema rule.
+            + [{'field': '$', 'code': 'extra'} for _ in extra_fields]
+        )
+        raise SemanticOutputValidationError(errors)
 
     normalized: dict[str, str | None] = {}
     for field in SEMANTIC_OUTPUT_FIELDS:
         value = output[field]
         if field in SEMANTIC_TEXT_FIELDS:
-            normalized[field] = _normalize_semantic_text(
-                value, maximum_length=SEMANTIC_TEXT_FIELDS[field]
-            )
+            try:
+                normalized[field] = _normalize_semantic_text(
+                    value, maximum_length=SEMANTIC_TEXT_FIELDS[field]
+                )
+            except SemanticOutputValidationError as error:
+                diagnostic = dict(error.validation_errors[0])
+                diagnostic['field'] = field
+                raise SemanticOutputValidationError((diagnostic,)) from None
             continue
         if value is None:
             if field not in SEMANTIC_NULLABLE_FIELDS:
-                raise SemanticOutputValidationError('semantic_output_invalid')
+                raise _semantic_validation_error(field, 'not_nullable')
             normalized[field] = None
             continue
         if not isinstance(value, str):
-            raise SemanticOutputValidationError('semantic_output_invalid')
+            raise _semantic_validation_error(field, 'invalid_type')
         value = value.strip()
         if value not in SEMANTIC_ENUM_FIELDS[field]:
-            raise SemanticOutputValidationError('semantic_output_invalid')
+            raise _semantic_validation_error(field, 'invalid_enum')
         normalized[field] = value
 
     for primary, secondary in SEMANTIC_SECONDARY_PRIMARY_PAIRS:
         if normalized[secondary] is not None and normalized[primary] == normalized[secondary]:
-            raise SemanticOutputValidationError('semantic_output_invalid')
+            raise _semantic_validation_error(secondary, 'same_as_primary')
     return normalized
 
 

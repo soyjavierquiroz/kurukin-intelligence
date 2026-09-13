@@ -67,6 +67,19 @@ def client_with(response_data, captured):
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
+def client_with_sequence(response_data, captured):
+    responses = iter(response_data)
+
+    def handler(request):
+        captured.append(request)
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        status, body = response if isinstance(response, tuple) else (200, response)
+        return httpx.Response(status, json=body)
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
 @pytest.mark.parametrize('name,adapter,filename,_', ADAPTERS)
 def test_provider_request_success_usage_and_safe_logs(name, adapter, filename, _, caplog):
     captured = []
@@ -131,6 +144,42 @@ def test_each_provider_rejects_malformed_empty_and_invalid_contract(name, adapte
     invalid = adapter(config, api_key='safe-key', client=client_with(fixture_response(filename, {'bad': 'contract'}), []))
     with pytest.raises(ValueError):
         validate_semantic_output(invalid.extract(PAYLOAD))
+
+
+@pytest.mark.parametrize('name,adapter,filename,_', ADAPTERS)
+def test_provider_metadata_isolated_per_invocation_and_retry(name, adapter, filename, _):
+    """A reusable adapter never carries telemetry across videos or attempts."""
+    first = fixture_response(filename)
+    second = fixture_response(filename)
+    usage_key = 'usageMetadata' if name == 'google' else 'usage'
+    if name == 'google':
+        second[usage_key].update(promptTokenCount=31, candidatesTokenCount=17, totalTokenCount=48)
+    else:
+        second[usage_key].update(input_tokens=31, output_tokens=17, total_tokens=48)
+        if name in ('moonshot', 'deepseek'):
+            second[usage_key].update(prompt_tokens=31, completion_tokens=17, total_tokens=48)
+    captured = []
+    provider = adapter(
+        SemanticProviderConfig(provider_name=name, model='model-x'), api_key='safe-key',
+        client=client_with_sequence([first, (503, {}), (503, {}), (503, {}), second], captured),
+    )
+
+    provider.extract(PAYLOAD)
+    assert provider.last_metadata.usage['total_tokens'] == 18
+
+    with pytest.raises(SemanticProviderError, match='provider_unavailable') as error:
+        provider.extract(PAYLOAD)
+    assert error.value.attempts == 2
+    assert provider.last_metadata.usage == {}
+    assert provider.last_metadata.attempts == 2
+
+    assert validate_semantic_output(provider.extract(PAYLOAD)) == minimum_output()
+    assert provider.last_metadata.usage == {
+        'input_tokens': 31, 'output_tokens': 17, 'total_tokens': 48,
+        **({'cached_input_tokens': 2, 'reasoning_tokens': 1} if name in ('openai', 'google', 'deepseek') else {}),
+    }
+    assert provider.last_metadata.attempts == 2
+    assert len(captured) == 5
 
 
 def test_gemini_schema_is_a_deterministic_subset_of_kurukin_contract():

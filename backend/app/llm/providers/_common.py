@@ -114,7 +114,20 @@ class RestSemanticProvider:
         self._owns_client = client is None
         self.last_metadata = SemanticProviderExecutionMetadata()
 
+    def _begin_invocation(self) -> None:
+        """Clear all call-scoped observability before constructing a request.
+
+        Adapters are deliberately reusable across benchmark videos.  Metadata
+        therefore cannot be accumulated on the instance: a failed request
+        must never report token counters, timing, or attempts from a previous
+        successful request.
+        """
+        self.last_metadata = SemanticProviderExecutionMetadata()
+
     def _post(self, url: str, *, headers: Mapping[str, str], payload: Mapping[str, object]) -> dict[str, object]:
+        # Also reset at the shared transport boundary so future adapters cannot
+        # accidentally retain state if they omit _begin_invocation().
+        self._begin_invocation()
         started = time.monotonic()
         attempts = 0
         try:

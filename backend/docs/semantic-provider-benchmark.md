@@ -57,9 +57,20 @@ cd backend
   --provider google --model 'configured-model-id' --ids-file ops/golden-set.json
 
 .venv/bin/python ops/benchmark_semantic_models.py \
+  --provider openai --model 'configured-model-id' \
+  --input-file /tmp/semantic-golden.json --video-id UUID
+
+.venv/bin/python ops/benchmark_semantic_models.py \
   --provider deepseek --model 'configured-model-id' --limit 20 \
   --input-cost-per-million 0.50 --output-cost-per-million 2.00
 ```
+
+`--input-file` accepts a JSON array whose records contain `video_id`,
+`language`, `caption`, and `transcript`. It needs no database connection or
+`DATABASE_URL`, and ignores any other metadata fields. It can be combined with
+one or more `--video-id` selectors; a requested ID absent from the file fails
+before any provider call. The normal DB-backed path is unchanged when this
+option is omitted.
 
 The optional cost parameters are CLI values, never provider-core prices.  The
 summary reports counts, validation rate, token totals, mean/p50/p95 latency,

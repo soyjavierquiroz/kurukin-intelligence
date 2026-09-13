@@ -88,6 +88,17 @@ def test_invalid_candidate_and_valid_false_are_real_failures(tmp_path):
     assert len(template) == 2 * len(SEMANTIC_OUTPUT_FIELDS)
 
 
+def test_evaluator_accepts_safe_benchmark_validation_diagnostics(tmp_path):
+    result, _ = one_result(tmp_path, [
+        result_record(
+            valid=False, semantic=None, error_code='schema_validation_failed',
+            validation_errors=[{'field': 'angle_type', 'code': 'invalid_enum'}],
+        ),
+    ])
+    assert result['failures']['error_code_counts'] == {'schema_validation_failed': 1}
+    assert result['schema_valid_rate'] == 0
+
+
 def test_missing_extra_and_duplicate_are_reported_and_missing_does_not_raise_accuracy(tmp_path):
     result, _ = one_result(tmp_path, [
         result_record('video-1'), result_record('video-1'), result_record('unknown'),

@@ -11,6 +11,7 @@ class MoonshotSemanticProvider(RestSemanticProvider):
     endpoint = 'https://api.moonshot.ai/v1/chat/completions'
 
     def extract(self, payload: dict[str, str]) -> dict[str, object]:
+        self._begin_invocation()
         request = {'model': self.config.model, 'messages': semantic_messages(payload, include_schema=True),
                    'response_format': {'type': 'json_object'}}
         try:

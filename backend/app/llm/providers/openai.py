@@ -21,6 +21,7 @@ class OpenAISemanticProvider(RestSemanticProvider):
         self.capabilities = SemanticProviderCapabilities(native_json_schema=native, json_mode=True)
 
     def extract(self, payload: dict[str, str]) -> dict[str, object]:
+        self._begin_invocation()
         request = {
             'model': self.config.model,
             'input': [
