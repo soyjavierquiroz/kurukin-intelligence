@@ -69,6 +69,54 @@ and optional estimated cost.  At most one retry is made for a timeout, 429, or
 `ops/golden-set.json` is intentionally an empty IDs-only starter file.  Future
 human-curated Golden Sets must contain video IDs only, never copied text.
 
+## Offline Golden Reference evaluation
+
+`ops/evaluate_semantic_benchmark.py` is a separate, fully offline evaluator.
+It imports the frozen Semantic DNA v1 contract directly, reads a Golden
+Reference and one or more benchmark JSONL files, and has no provider, network,
+database, or migration dependency.
+
+```bash
+cd backend
+.venv/bin/python ops/evaluate_semantic_benchmark.py \
+  --reference /path/golden-reference-v0.json \
+  --result /tmp/openai-results.jsonl \
+  --result /tmp/gemini-results.jsonl \
+  --json-out /tmp/semantic-evaluation.json \
+  --markdown-out /tmp/semantic-evaluation.md \
+  --adjudication-template-out /tmp/semantic-adjudication.jsonl
+```
+
+The evaluator reports coverage and failures before comparing values, so missing
+or invalid records cannot make a provider appear more accurate. Closed enums
+are exact-only comparisons with per-field/video accuracy and confusion pairs.
+Text uses nullability and normalized token diagnostics only; **TEXT SIMILARITY
+IS DIAGNOSTIC ONLY** and is never folded into a winner score.
+
+The template contains only `video_id`, field, provider/model, reference value,
+candidate value, and a decision. Exact matches are prefilled `exact`; every
+difference is `pending`. Reviewers may supply it later through
+`--adjudication`, choosing `exact`, `acceptable`, `wrong`, or `pending`.
+`exact` and `acceptable` receive full credit, `wrong` receives zero, and
+`pending` is excluded. Until no decisions are pending, the adjudicated score is
+explicitly not final. No automatic winner is declared.
+
+The dimension table in the evaluator groups the frozen fields for presentation
+only; it is checked at import time to cover every v1 field exactly once and
+does not alter the contract or create weighting rules.
+
+### Live execution plan (not executed here)
+
+Phase 1 smoke: run 3 Golden Set videos with OpenAI and 3 with Gemini/Google.
+
+Phase 2: if both smoke runs work, run all 18 videos with OpenAI and all 18 with
+Gemini/Google. Run Gemini sequentially to remain within free-tier quotas and
+rate limits.
+
+Moonshot/Kimi and DeepSeek remain implemented but are not selected until a key
+and credit are available. They require no key while unselected and can later be
+evaluated against this exact same Golden Reference.
+
 ## Errors and adding a provider
 
 Errors normalize to `authentication_error`, `rate_limited`, `timeout`,
