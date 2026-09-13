@@ -19,7 +19,7 @@
     return result;
   }
   function empty(now=Date.now){return {version:VERSION,status:'idle',channels:[],active_channel_id:null,tab_id:null,lock:null,updated_at:nowISO(now)};}
-  function queue(input,tabId,now=Date.now){const at=nowISO(now);return {...empty(now),status:'running',tab_id:Number.isInteger(tabId)?tabId:null,channels:normalize(input).map((item,index)=>({id:`channel-${index}-${item.channel}`,channel:item.channel,profile_url:item.profile_url,status:'pending',started_at:null,updated_at:at,last_error:null,processed_count:0,acquired_count:0,analysis_id:null,scan_id:null}))};}
+  function queue(input,tabId,now=Date.now){const at=nowISO(now),items=normalize(input);return {...empty(now),status:items.length?'running':'idle',tab_id:Number.isInteger(tabId)?tabId:null,channels:items.map((item,index)=>({id:`channel-${index}-${item.channel}`,channel:item.channel,profile_url:item.profile_url,status:'pending',started_at:null,updated_at:at,last_error:null,processed_count:0,acquired_count:0,analysis_id:null,scan_id:null}))};}
   function valid(state){return !!state&&state.version===VERSION&&globals.includes(state.status)&&Array.isArray(state.channels)&&state.channels.every(c=>c&&typeof c.id==='string'&&typeof c.channel==='string'&&typeof c.profile_url==='string'&&channels.includes(c.status));}
   function active(state){return state.channels.find(c=>c.id===state.active_channel_id)||null;}
   function clone(value){return JSON.parse(JSON.stringify(value));}
@@ -60,14 +60,21 @@
     }
     let chain=Promise.resolve();
     const exclusive=operation=>{const next=chain.then(operation,operation);chain=next.catch(()=>{});return next;};
-    async function start(input,tabId){const existing=await load();if(existing.status==='running')return existing;let state=queue(input,tabId,now);state.lock={owner:instanceId,expires_at:now()+LOCK_MS};await save(state);return tick();}
+    async function enqueue(input,tabId){const additions=normalize(input);if(!additions.length)return load();let state=await lock(await load());if(!state)return null;
+      if(['running','paused'].includes(state.status)){
+        const known=new Set(state.channels.map(channel=>channel.channel));const at=nowISO(now);
+        for(const item of additions)if(!known.has(item.channel)){known.add(item.channel);state.channels.push({id:`channel-${state.channels.length}-${item.channel}`,channel:item.channel,profile_url:item.profile_url,status:'pending',started_at:null,updated_at:at,last_error:null,processed_count:0,acquired_count:0,analysis_id:null,scan_id:null});}
+        if(Number.isInteger(tabId)&&!Number.isInteger(state.tab_id))state.tab_id=tabId;state.updated_at=at;await save(state);return state.status==='running'?tick():state;
+      }
+      state=queue(input,tabId,now);state.lock={owner:instanceId,expires_at:now()+LOCK_MS};await save(state);return tick();
+    }
     async function pause(){const state=await persistTransition({type:'PAUSE'});if(state&&tabs?.pause)await tabs.pause(state.tab_id);return state;}
     async function resume(){const state=await persistTransition({type:'RESUME'});return state?.status==='running'?tick():state;}
     async function stop(){const state=await persistTransition({type:'STOP'});if(state&&tabs?.pause)await tabs.pause(state.tab_id);return state;}
     async function skip(){const state=await persistTransition({type:'SKIP'});return state?.status==='running'?tick():state;}
     async function event(event){const state=await persistTransition(event);return state?.status==='running'&&['COMPLETE','WAITING'].includes(event.type)?tick():state;}
     async function ready(tabId){const state=await lock(await load());if(!state||state.status!=='running'||state.tab_id!==tabId){if(state)await save(state);return state;}const c=active(state);await save(state);if(c&&c.status!=='waiting'&&tabs?.run)await tabs.run(tabId,c);return state;}
-    return Object.freeze({key:KEY,load,start:(input,tabId)=>exclusive(()=>start(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),stop:()=>exclusive(stop),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),tick:()=>exclusive(tick)});
+    return Object.freeze({key:KEY,load,enqueue:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),start:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),stop:()=>exclusive(stop),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),tick:()=>exclusive(tick)});
   }
   const api=Object.freeze({KEY,VERSION,LOCK_MS,RETRY_MS,globals,channels,normalized,normalize,empty,queue,valid,active,transition,create});
   root.KurukinAutoCurator=api;if(typeof module!=='undefined')module.exports=api;

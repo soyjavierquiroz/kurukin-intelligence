@@ -1,4 +1,4 @@
-# Kurukin TikTok Collector 0.8.5
+# Kurukin Intelligence 0.8.6
 
 La ruta normal es deliberadamente estrecha:
 
@@ -25,8 +25,11 @@ guarda ninguna cookie, token, header ni URL de media.
 
 1. Carga `extension/` sin empaquetar en `chrome://extensions` y recarga la
    pestaña TikTok.
-2. En un perfil TikTok con sesión iniciada, abre el sidebar y realiza un scan.
-3. En **Audio acquisition**, pulsa **Reservar lote en servidor** y luego
+2. En un perfil TikTok con sesión iniciada, abre el sidebar y pega o escribe los
+   canales en **AUTO CURATOR v1**. La cola válida se guarda y arranca sola; el
+   curador realiza scan, reserva y adquisición secuencialmente. Los únicos
+   controles operativos son Pause, Resume, Stop y Skip current channel.
+3. Para depuración manual, usa **Analizar canal** y, en **Audio acquisition**, pulsa **Reservar lote en servidor** y luego
    **Adquirir audio reservado**. La UI muestra requested, uploaded, failed,
    current, el último error seguro (`STAGE · SAFE_ERROR_CODE`) y los tiempos
    disponibles de Fetch MP4, Decode, WAV, Handoff y Upload. Una etapa no ejecutada se

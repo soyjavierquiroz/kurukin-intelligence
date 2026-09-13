@@ -14,7 +14,7 @@
   const recordAudioDiagnostic=(failure,timings)=>{if(!reservation)return;reservation.audioDiagnostic={...timings,lastErrorStage:failure.stage,lastErrorCode:failure.code};};
   const recordTimings=timings=>{if(!reservation)return;reservation.audioDiagnostic={...(reservation.audioDiagnostic||emptyDiagnostic()),...timings};};
   const clean=()=>{acquiring=false;current=null;reservation=null;scanVideos=[];};
-  const sidebar=createSidebar(document,runtime,()=>{if(running&&scanId)postPage('SCAN_CANCEL',scanId);clean();scanId=contextId=null;running=false;});
+  const sidebar=createSidebar(document,runtime,()=>{const autoActive=!!auto&&auto.scanId===scanId&&(running||acquiring||!!current||!!reservation);if(autoActive)return;if(running&&scanId)postPage('SCAN_CANCEL',scanId);clean();scanId=contextId=null;running=false;});
   function alive(){try{if(!runtime.id)throw Error();return !dead;}catch{dead=true;sidebar.close();window.removeEventListener('message',relay);return false;}}
   const backendError=error=>({code:['BACKEND_REJECTED','RESERVATION_REQUIRED'].includes(error?.code)?error.code:'BACKEND_UNAVAILABLE',diagnostic:A.diagnostic(error)});
   async function reserve(refresh=false){if(reservation&&!refresh)return reservation;if(!scanVideos.length)throw Object.assign(Error(),{code:'BACKEND_REJECTED'});const response=await A.reserve(runtime,scanVideos);reservation={...response,uploaded:0,failed:0,released:0,audioDiagnostic:emptyDiagnostic(),complete:false,empty:response.requests.length===0};state(reservation.empty?'exhausted':'reserved');return reservation;}
