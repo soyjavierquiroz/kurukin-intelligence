@@ -11,6 +11,10 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.autogenerate import compare_metadata
 from sqlalchemy import create_engine, inspect, text
+from app.llm.semantic_contract import (
+    SEMANTIC_ENUM_FIELDS, SEMANTIC_OUTPUT_FIELDS, SEMANTIC_SECONDARY_PRIMARY_PAIRS,
+    semantic_secondary_constraint_name,
+)
 from app.models import Base
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +43,11 @@ def test_initial_migration_matches_metadata_and_downgrade():
             spec6=importlib.util.spec_from_file_location('viral_dna', ROOT/'alembic/versions/0006_viral_dna.py')
             sixth=importlib.util.module_from_spec(spec6); spec6.loader.exec_module(sixth)
             sixth.upgrade()
+            spec7=importlib.util.spec_from_file_location('semantic_viral_dna', ROOT/'alembic/versions/0007_semantic_viral_dna.py')
+            seventh=importlib.util.module_from_spec(spec7); spec7.loader.exec_module(seventh)
+            seventh.upgrade()
             assert compare_metadata(context, Base.metadata) == []
+            seventh.downgrade()
             sixth.downgrade()
             fifth.downgrade()
             fourth.downgrade()
@@ -132,6 +140,37 @@ def test_0005_to_0006_preserves_existing_corpus_and_downgrades_only_viral_dna():
             assert set(inspect(connection).get_table_names()) == tables_before
 
 
+def test_0006_to_0007_adds_and_removes_only_semantic_viral_dna_fields():
+    def migration(name):
+        spec = importlib.util.spec_from_file_location(name, ROOT/f'alembic/versions/{name}.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        return module
+
+    first, second, third, fourth, fifth, sixth, seventh = (migration(name) for name in (
+        '0001_global_corpus', '0002_async_transcription_jobs', '0003_audio_assessment',
+        '0004_video_music_metadata', '0005_global_incremental_channel_corpus', '0006_viral_dna',
+        '0007_semantic_viral_dna'))
+    semantic_columns = set(SEMANTIC_OUTPUT_FIELDS) | {
+        'semantic_input_sha256', 'semantic_model', 'semantic_prompt_version', 'semantic_extracted_at',
+    }
+    semantic_constraints = {f'ck_viral_dna_{field}' for field in SEMANTIC_ENUM_FIELDS} | {
+        semantic_secondary_constraint_name(primary, secondary)
+        for primary, secondary in SEMANTIC_SECONDARY_PRIMARY_PAIRS
+    }
+    with create_engine('sqlite://').begin() as connection:
+        context = MigrationContext.configure(connection)
+        with Operations.context(context):
+            first.upgrade(); second.upgrade(); third.upgrade(); fourth.upgrade(); fifth.upgrade(); sixth.upgrade()
+            columns_before = {column['name'] for column in inspect(connection).get_columns('viral_dna')}
+            sixth_constraints = {item['name'] for item in inspect(connection).get_check_constraints('viral_dna')}
+            seventh.upgrade()
+            assert {column['name'] for column in inspect(connection).get_columns('viral_dna')} == columns_before | semantic_columns
+            assert {item['name'] for item in inspect(connection).get_check_constraints('viral_dna')} == sixth_constraints | semantic_constraints
+            seventh.downgrade()
+            assert {column['name'] for column in inspect(connection).get_columns('viral_dna')} == columns_before
+            assert {item['name'] for item in inspect(connection).get_check_constraints('viral_dna')} == sixth_constraints
+
+
 def test_postgres_offline_sql_and_revision(monkeypatch):
     monkeypatch.setenv('DATABASE_URL', 'postgresql+psycopg://kurukin_tiktok:test-secret@postgres:5432/kurukin_tiktok')
     output=io.StringIO()
@@ -140,6 +179,7 @@ def test_postgres_offline_sql_and_revision(monkeypatch):
     assert 'CREATE TABLE channels' in sql and 'CREATE TABLE transcripts' in sql
     assert 'UNIQUE (video_id)' in sql and 'UNIQUE (tiktok_id)' in sql
     assert 'CREATE TABLE viral_dna' in sql and 'uq_viral_dna_video_extractor_version' in sql
+    assert 'semantic_input_sha256' in sql and 'ck_viral_dna_hook_type' in sql
     assert 'test-secret' not in sql and 'n8n_v2_data' not in sql
 
 

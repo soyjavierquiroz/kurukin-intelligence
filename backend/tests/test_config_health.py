@@ -50,6 +50,22 @@ def test_concurrency_configuration():
         Settings(whisper_concurrency=2)
 
 
+def test_semantic_provider_configuration_is_neutral_and_pairs_models(monkeypatch):
+    monkeypatch.setenv('VIRAL_DNA_SEMANTIC_PROVIDER', 'fake')
+    monkeypatch.setenv('VIRAL_DNA_SEMANTIC_MODEL', 'fake-model')
+    settings = Settings()
+    assert settings.viral_dna_semantic_provider == 'fake'
+    assert settings.viral_dna_semantic_model == 'fake-model'
+    assert settings.semantic_viral_dna_routing_policy.primary.identifier == 'fake:fake-model'
+
+
+def test_semantic_provider_configuration_rejects_incomplete_route(monkeypatch):
+    from pydantic import ValidationError
+    monkeypatch.setenv('VIRAL_DNA_SEMANTIC_PROVIDER', 'fake')
+    with pytest.raises(ValidationError):
+        Settings()
+
+
 def test_health_no_db_or_whisper(monkeypatch):
     def forbidden():
         pytest.fail('Health accessed DB or Whisper')

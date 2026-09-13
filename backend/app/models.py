@@ -6,9 +6,23 @@ from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKe
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 
+from .llm.semantic_contract import (
+    SEMANTIC_ENUM_FIELDS,
+    SEMANTIC_SECONDARY_PRIMARY_PAIRS,
+    SEMANTIC_TEXT_FIELDS,
+    semantic_secondary_constraint_name,
+)
+
 
 def now():
     return datetime.now(timezone.utc)
+
+
+def _semantic_enum_constraint(field: str) -> CheckConstraint:
+    values = ','.join(repr(value) for value in SEMANTIC_ENUM_FIELDS[field])
+    return CheckConstraint(
+        f'{field} IN ({values})', name=f'ck_viral_dna_{field}',
+    )
 
 
 class Base(DeclarativeBase):
@@ -138,6 +152,11 @@ class ViralDNA(Identity, Base):
             "semantic_status IN ('not_requested','pending','completed','skipped_no_transcript','failed')",
             name='ck_viral_dna_semantic_status',
         ),
+        *(_semantic_enum_constraint(field) for field in SEMANTIC_ENUM_FIELDS),
+        *(CheckConstraint(
+            f'{secondary} IS NULL OR {primary} != {secondary}',
+            name=semantic_secondary_constraint_name(primary, secondary),
+        ) for primary, secondary in SEMANTIC_SECONDARY_PRIMARY_PAIRS),
     )
     # The composite unique constraint indexes video_id already, so a separate
     # single-column index would be redundant.
@@ -155,6 +174,52 @@ class ViralDNA(Identity, Base):
         ForeignKey('audio_assessments.id'), index=True
     )
     semantic_status: Mapped[str] = mapped_column(String(32))
+    # Phase B semantic fields are global to this (video, extractor_version)
+    # identity.  They intentionally have no Analysis, user, or snapshot link.
+    hook_text: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['hook_text']))
+    hook_type: Mapped[str | None] = mapped_column(String(32))
+    hook_mechanism: Mapped[str | None] = mapped_column(String(32))
+    hook_target: Mapped[str | None] = mapped_column(String(32))
+    audience_specificity: Mapped[str | None] = mapped_column(String(32))
+    topic: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['topic']))
+    subtopic: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['subtopic']))
+    angle_type: Mapped[str | None] = mapped_column(String(32))
+    angle_summary: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['angle_summary']))
+    pain: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['pain']))
+    desire: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['desire']))
+    fear: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['fear']))
+    audience_identity: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['audience_identity']))
+    belief: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['belief']))
+    objection: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['objection']))
+    promise: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['promise']))
+    reframe: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['reframe']))
+    emotion_primary: Mapped[str | None] = mapped_column(String(32))
+    emotion_secondary: Mapped[str | None] = mapped_column(String(32))
+    emotional_arc: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['emotional_arc']))
+    content_function_primary: Mapped[str | None] = mapped_column(String(32))
+    content_function_secondary: Mapped[str | None] = mapped_column(String(32))
+    content_role_primary: Mapped[str | None] = mapped_column(String(32))
+    content_role_secondary: Mapped[str | None] = mapped_column(String(32))
+    content_format: Mapped[str | None] = mapped_column(String(32))
+    narrative_structure: Mapped[str | None] = mapped_column(String(32))
+    awareness_stage: Mapped[str | None] = mapped_column(String(32))
+    proof_type: Mapped[str | None] = mapped_column(String(32))
+    authority_mechanism: Mapped[str | None] = mapped_column(String(32))
+    creator_positioning_signal: Mapped[str | None] = mapped_column(String(32))
+    cta_type: Mapped[str | None] = mapped_column(String(32))
+    cta_secondary_type: Mapped[str | None] = mapped_column(String(32))
+    cta_text: Mapped[str | None] = mapped_column(String(SEMANTIC_TEXT_FIELDS['cta_text']))
+    commercial_intent: Mapped[str | None] = mapped_column(String(32))
+    offer_integration: Mapped[str | None] = mapped_column(String(32))
+    offer_type: Mapped[str | None] = mapped_column(String(32))
+    monetization_model: Mapped[str | None] = mapped_column(String(32))
+    semantic_input_sha256: Mapped[str | None] = mapped_column(String(64))
+    # Provider-qualified model provenance, e.g. ``openai:gpt-x``.  Keeping
+    # this in the existing column avoids a schema change while preserving the
+    # exact adapter/model identity used for extraction.
+    semantic_model: Mapped[str | None] = mapped_column(String(128))
+    semantic_prompt_version: Mapped[str | None] = mapped_column(String(64))
+    semantic_extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 

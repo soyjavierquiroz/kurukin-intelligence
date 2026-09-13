@@ -19,6 +19,21 @@ class Settings(BaseSettings):
     high_value_outlier_threshold: float = Field(2.0, ge=0, allow_inf_nan=False)
     enrichment_lease_seconds: int = Field(1800, ge=60, le=86400)
 
+    # Provider-neutral Semantic Viral DNA routing configuration.  No provider
+    # SDK, credential, or automatic fallback is configured at this layer.
+    viral_dna_semantic_provider: str | None = Field(
+        None, validation_alias='VIRAL_DNA_SEMANTIC_PROVIDER'
+    )
+    viral_dna_semantic_model: str | None = Field(
+        None, validation_alias='VIRAL_DNA_SEMANTIC_MODEL'
+    )
+    viral_dna_semantic_fallback_provider: str | None = Field(
+        None, validation_alias='VIRAL_DNA_SEMANTIC_FALLBACK_PROVIDER'
+    )
+    viral_dna_semantic_fallback_model: str | None = Field(
+        None, validation_alias='VIRAL_DNA_SEMANTIC_FALLBACK_MODEL'
+    )
+
     audio_queue_dir: str = '/data/audio-queue'
     audio_queue_max_bytes: int = Field(3 * 1024**3, gt=0)
     audio_queue_min_free_bytes: int = Field(5 * 1024**3, ge=0)
@@ -52,6 +67,34 @@ class Settings(BaseSettings):
         if not self.min_transcribe_duration_seconds <= self.auto_transcribe_max_duration_seconds <= self.hard_transcribe_max_duration_seconds:
             raise ValueError('Duration limits must satisfy min <= auto <= hard')
         return self
+
+    @model_validator(mode='after')
+    def semantic_routing_pairs(self):
+        if bool(self.viral_dna_semantic_provider) != bool(self.viral_dna_semantic_model):
+            raise ValueError('Semantic Viral DNA primary provider and model must be configured together')
+        if bool(self.viral_dna_semantic_fallback_provider) != bool(self.viral_dna_semantic_fallback_model):
+            raise ValueError('Semantic Viral DNA fallback provider and model must be configured together')
+        if self.viral_dna_semantic_fallback_provider and not self.viral_dna_semantic_provider:
+            raise ValueError('Semantic Viral DNA fallback requires a primary provider')
+        return self
+
+    @property
+    def semantic_viral_dna_routing_policy(self):
+        """Return declared primary/fallback policy; this performs no routing."""
+        if self.viral_dna_semantic_provider is None:
+            return None
+        from .llm.semantic import SemanticProviderConfig, SemanticRoutingPolicy
+        primary = SemanticProviderConfig(
+            provider_name=self.viral_dna_semantic_provider,
+            model=self.viral_dna_semantic_model,
+        )
+        fallback = None
+        if self.viral_dna_semantic_fallback_provider is not None:
+            fallback = SemanticProviderConfig(
+                provider_name=self.viral_dna_semantic_fallback_provider,
+                model=self.viral_dna_semantic_fallback_model,
+            )
+        return SemanticRoutingPolicy(primary=primary, fallback=fallback)
 
     max_audio_mb: int = Field(10, ge=1, le=100)
     whisper_model: Literal['base', 'small', 'medium'] = 'small'
