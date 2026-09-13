@@ -66,6 +66,21 @@ def test_semantic_provider_configuration_rejects_incomplete_route(monkeypatch):
         Settings()
 
 
+def test_openai_secret_file_takes_precedence_without_exposing_its_value(tmp_path, monkeypatch):
+    secret = tmp_path / 'openai-key'
+    secret.write_text('file-private-key\n')
+    monkeypatch.setenv('OPENAI_API_KEY', 'env-private-key')
+    monkeypatch.setenv('OPENAI_API_KEY_FILE', str(secret))
+    assert Settings().semantic_provider_api_key('openai') == 'file-private-key'
+
+
+def test_openai_secret_file_does_not_fall_back_when_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv('OPENAI_API_KEY', 'env-private-key')
+    monkeypatch.setenv('OPENAI_API_KEY_FILE', str(tmp_path / 'missing'))
+    with pytest.raises(RuntimeError, match='semantic_provider_api_key_missing'):
+        Settings().semantic_provider_api_key('openai')
+
+
 def test_gemini_credential_pool_parsing_keeps_legacy_single_key_compatible(monkeypatch):
     monkeypatch.setenv('GEMINI_API_KEY', 'legacy-private-key')
     assert Settings().semantic_provider_api_keys('google') == ('legacy-private-key',)

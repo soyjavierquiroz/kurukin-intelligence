@@ -12,6 +12,9 @@ services:
       - source: kurukin_tiktok_rabbitmq_url_v1
         target: kurukin_tiktok_rabbitmq_url
         mode: 0400
+      - source: kurukin_tiktok_openai_api_key_v1
+        target: kurukin_tiktok_openai_api_key
+        mode: 0400
     environment:
       DATABASE_URL_FILE: /run/secrets/kurukin_tiktok_database_url
       ACQUISITION_BATCH_SIZE: '10'
@@ -26,6 +29,9 @@ services:
       HIGH_VALUE_OUTLIER_THRESHOLD: '2.0'
       ENRICHMENT_LEASE_SECONDS: '1800'
       MAX_AUDIO_MB: '10'
+      VIRAL_DNA_SEMANTIC_PROVIDER: openai
+      VIRAL_DNA_SEMANTIC_MODEL: gpt-5.6-luna
+      OPENAI_API_KEY_FILE: /run/secrets/kurukin_tiktok_openai_api_key
     volumes:
       - kurukin_tiktok_audio_queue:/data/audio-queue
     healthcheck:
@@ -109,6 +115,8 @@ secrets:
   kurukin_tiktok_rabbitmq_url_v1:
     external: true
   kurukin_tiktok_database_url_v1:
+    external: true
+  kurukin_tiktok_openai_api_key_v1:
     external: true
 volumes:
   kurukin_tiktok_whisper_cache:

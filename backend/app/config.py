@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     )
     # Credentials are intentionally provider-specific and optional.  The
     # selected adapter alone resolves its own key at construction time.
+    openai_api_key_file: str | None = Field(
+        None, validation_alias='OPENAI_API_KEY_FILE', repr=False
+    )
     openai_api_key: SecretStr | None = Field(None, validation_alias='OPENAI_API_KEY', repr=False)
     gemini_api_key: SecretStr | None = Field(None, validation_alias='GEMINI_API_KEY', repr=False)
     gemini_api_keys: SecretStr | None = Field(None, validation_alias='GEMINI_API_KEYS', repr=False)
@@ -105,6 +108,14 @@ class Settings(BaseSettings):
 
     def semantic_provider_api_key(self, provider_name: str) -> str:
         """Resolve only the selected provider credential without exposing it."""
+        if provider_name == 'openai' and self.openai_api_key_file is not None:
+            try:
+                value = Path(self.openai_api_key_file).read_text().strip()
+            except OSError:
+                value = ''
+            if value:
+                return value
+            raise RuntimeError('semantic_provider_api_key_missing')
         key = {
             'openai': self.openai_api_key,
             'google': self.gemini_api_key,
