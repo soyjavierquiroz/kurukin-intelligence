@@ -40,6 +40,21 @@ class SemanticProviderCapabilities:
 
 
 @dataclass(frozen=True)
+class SemanticProviderExecutionMetadata:
+    """Safe per-call observability retained by concrete adapters.
+
+    The semantic contract remains the value returned by ``extract``.  This
+    side-channel deliberately contains no request or response content so the
+    benchmark can report timing, attempts and provider usage without making
+    the core or persistence model provider-aware.
+    """
+
+    usage: Mapping[str, int] = field(default_factory=dict)
+    latency_ms: int | None = None
+    attempts: int = 1
+
+
+@dataclass(frozen=True)
 class SemanticProviderConfig:
     """Non-secret configuration passed to one provider adapter.
 
@@ -74,6 +89,7 @@ class SemanticProvider(Protocol):
     """The only LLM interface consumed by Semantic Viral DNA core."""
 
     capabilities: SemanticProviderCapabilities
+    last_metadata: SemanticProviderExecutionMetadata
 
     def extract(self, payload: dict[str, str]) -> dict[str, object]:
         """Return the Kurukin-owned Semantic Viral DNA JSON contract."""

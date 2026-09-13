@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     viral_dna_semantic_fallback_model: str | None = Field(
         None, validation_alias='VIRAL_DNA_SEMANTIC_FALLBACK_MODEL'
     )
+    # Credentials are intentionally provider-specific and optional.  The
+    # selected adapter alone resolves its own key at construction time.
+    openai_api_key: SecretStr | None = Field(None, validation_alias='OPENAI_API_KEY', repr=False)
+    gemini_api_key: SecretStr | None = Field(None, validation_alias='GEMINI_API_KEY', repr=False)
+    moonshot_api_key: SecretStr | None = Field(None, validation_alias='MOONSHOT_API_KEY', repr=False)
+    deepseek_api_key: SecretStr | None = Field(None, validation_alias='DEEPSEEK_API_KEY', repr=False)
 
     audio_queue_dir: str = '/data/audio-queue'
     audio_queue_max_bytes: int = Field(3 * 1024**3, gt=0)
@@ -95,6 +101,18 @@ class Settings(BaseSettings):
                 model=self.viral_dna_semantic_fallback_model,
             )
         return SemanticRoutingPolicy(primary=primary, fallback=fallback)
+
+    def semantic_provider_api_key(self, provider_name: str) -> str:
+        """Resolve only the selected provider credential without exposing it."""
+        key = {
+            'openai': self.openai_api_key,
+            'google': self.gemini_api_key,
+            'moonshot': self.moonshot_api_key,
+            'deepseek': self.deepseek_api_key,
+        }.get(provider_name)
+        if key is None or not key.get_secret_value().strip():
+            raise RuntimeError('semantic_provider_api_key_missing')
+        return key.get_secret_value()
 
     max_audio_mb: int = Field(10, ge=1, le=100)
     whisper_model: Literal['base', 'small', 'medium'] = 'small'
