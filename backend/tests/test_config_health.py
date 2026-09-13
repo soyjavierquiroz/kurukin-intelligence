@@ -66,6 +66,15 @@ def test_semantic_provider_configuration_rejects_incomplete_route(monkeypatch):
         Settings()
 
 
+def test_gemini_credential_pool_parsing_keeps_legacy_single_key_compatible(monkeypatch):
+    monkeypatch.setenv('GEMINI_API_KEY', 'legacy-private-key')
+    assert Settings().semantic_provider_api_keys('google') == ('legacy-private-key',)
+    monkeypatch.setenv('GEMINI_API_KEYS', ' first-private-key, , second-private-key ')
+    assert Settings().semantic_provider_api_keys('google') == ('first-private-key', 'second-private-key')
+    monkeypatch.setenv('GEMINI_API_KEYS', ' , ')
+    assert Settings().semantic_provider_api_keys('google') == ('legacy-private-key',)
+
+
 def test_health_no_db_or_whisper(monkeypatch):
     def forbidden():
         pytest.fail('Health accessed DB or Whisper')

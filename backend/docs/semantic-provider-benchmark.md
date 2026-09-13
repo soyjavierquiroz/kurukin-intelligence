@@ -20,9 +20,15 @@ export VIRAL_DNA_SEMANTIC_MODEL='your-model-id'
 ```
 
 Only the chosen provider needs its credential: `OPENAI_API_KEY`,
-`GEMINI_API_KEY`, `MOONSHOT_API_KEY`, or `DEEPSEEK_API_KEY`.  There are no
-model defaults and no credentials, input content, raw responses, or
-authorization values in logs.
+`GEMINI_API_KEY`, `MOONSHOT_API_KEY`, or `DEEPSEEK_API_KEY`. For development
+Gemini benchmarking, `GEMINI_API_KEYS=key1,key2,...` optionally replaces the
+single Gemini key with an in-memory round-robin pool; blank entries are
+ignored and the legacy `GEMINI_API_KEY` remains compatible. A 429 cools down
+only that credential, a repeated 503 can advance to another credential, and
+authentication failures disable only that credential for the process. Logs
+and output may identify `credential_index` only, never a key or a
+secret-derived identifier. There are no model defaults and no credentials,
+input content, raw responses, or authorization values in logs.
 
 The REST protocols are deliberately lightweight: OpenAI `POST /v1/responses`,
 Gemini `POST /v1beta/models/{model}:generateContent`, and OpenAI-compatible
@@ -74,8 +80,18 @@ option is omitted.
 
 The optional cost parameters are CLI values, never provider-core prices.  The
 summary reports counts, validation rate, token totals, mean/p50/p95 latency,
-and optional estimated cost.  At most one retry is made for a timeout, 429, or
-5xx; semantic failures are never retried.
+optional per-index credential usage, and optional estimated cost. `--delay-seconds
+FLOAT` (default `0`) sleeps between benchmark records only, never after the
+last record, and works for every provider. At most one retry is made for a
+timeout, 429, or 5xx on the selected credential; semantic failures are never
+retried.
+
+The Google benchmark is provider-isolated: `--provider google --model
+gemini-3.7-flash` measures Gemini only and never falls back to OpenAI. A future
+normal-processing routing policy may use the Gemini pool first and OpenAI only
+after all Gemini credentials are unavailable, quota-limited, or cooling down;
+that cross-provider fallback is intentionally not implemented by this
+benchmark or provider adapter.
 
 `ops/golden-set.json` is intentionally an empty IDs-only starter file.  Future
 human-curated Golden Sets must contain video IDs only, never copied text.

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 import statistics
 import sys
+import time
 from dataclasses import dataclass
 from typing import Iterable
 from uuid import UUID
@@ -123,6 +125,9 @@ def _record_for_provider_call(provider: SemanticProvider, *, video_id: UUID, pay
         record['latency_ms'] = metadata.latency_ms
         record['usage'] = dict(metadata.usage)
         record['attempts'] = metadata.attempts
+        credential_index = getattr(metadata, 'credential_index', None)
+        if isinstance(credential_index, int):
+            record['credential_index'] = credential_index
     return record
 
 
@@ -131,7 +136,7 @@ def _benchmark_summary(records: list[dict[str, object]]) -> dict[str, object]:
     valid = sum(record['valid'] is True for record in records)
     latencies = [record['latency_ms'] for record in records if isinstance(record['latency_ms'], int)]
     usages = [record['usage'] for record in records if isinstance(record['usage'], dict)]
-    return {
+    summary: dict[str, object] = {
         'processed': len(records), 'valid': valid, 'failed': len(records) - valid,
         'valid_rate': (valid / len(records)) if records else 0.0,
         'total_input_tokens': sum(usage.get('input_tokens', 0) for usage in usages),
@@ -140,13 +145,21 @@ def _benchmark_summary(records: list[dict[str, object]]) -> dict[str, object]:
         'latency_ms_avg': round(statistics.mean(latencies)) if latencies else None,
         'latency_ms_p50': _percentile(latencies, 0.50), 'latency_ms_p95': _percentile(latencies, 0.95),
     }
+    credential_indices = [record.get('credential_index') for record in records]
+    if any(isinstance(index, int) for index in credential_indices):
+        summary['credential_usage'] = {
+            str(index): sum(record.get('credential_index') == index for record in records)
+            for index in sorted({index for index in credential_indices if isinstance(index, int)})
+        }
+    return summary
 
 
 def benchmark_semantic_models(session: Session, provider: SemanticProvider, *, provider_name: str, model: str,
-                              video_ids: Iterable[UUID]) -> tuple[list[dict[str, object]], dict[str, object]]:
+                              video_ids: Iterable[UUID], delay_seconds: float = 0.0) -> tuple[list[dict[str, object]], dict[str, object]]:
     """Run benchmark extraction without writing, flushing, or committing the DB session."""
+    selected_video_ids = list(video_ids)
     records: list[dict[str, object]] = []
-    for video_id in video_ids:
+    for position, video_id in enumerate(selected_video_ids):
         video = session.get(Video, video_id)
         transcript = None if video is None else session.scalar(select(Transcript).where(Transcript.video_id == video.id))
         if video is None:
@@ -159,6 +172,8 @@ def benchmark_semantic_models(session: Session, provider: SemanticProvider, *, p
                 provider_name=provider_name, model=model,
             )
         records.append(record)
+        if delay_seconds and position < len(selected_video_ids) - 1:
+            time.sleep(delay_seconds)
 
     return records, _benchmark_summary(records)
 
@@ -174,19 +189,22 @@ def _skipped_record(video_id: UUID, *, provider_name: str, model: str,
 
 
 def benchmark_semantic_input_records(inputs: Iterable[BenchmarkInputRecord], provider: SemanticProvider, *,
-                                     provider_name: str, model: str) -> tuple[list[dict[str, object]], dict[str, object]]:
+                                     provider_name: str, model: str,
+                                     delay_seconds: float = 0.0) -> tuple[list[dict[str, object]], dict[str, object]]:
     """Run a read-only benchmark from file input without creating a DB session."""
-    records = [
-        _record_for_provider_call(
+    input_records = list(inputs)
+    records: list[dict[str, object]] = []
+    for position, item in enumerate(input_records):
+        records.append(_record_for_provider_call(
             provider,
             video_id=item.video_id,
             # Match semantic_payload() exactly: trim language and caption only.
             payload={'language': item.language.strip(), 'caption': item.caption.strip(), 'transcript': item.transcript},
             provider_name=provider_name,
             model=model,
-        )
-        for item in inputs
-    ]
+        ))
+        if delay_seconds and position < len(input_records) - 1:
+            time.sleep(delay_seconds)
     return records, _benchmark_summary(records)
 
 
@@ -200,9 +218,12 @@ def main() -> int:
     parser.add_argument('--input-file', type=Path)
     parser.add_argument('--input-cost-per-million', type=float)
     parser.add_argument('--output-cost-per-million', type=float)
+    parser.add_argument('--delay-seconds', type=float, default=0.0)
     args = parser.parse_args()
     if args.limit is not None and args.limit < 0:
         parser.error('--limit must be non-negative')
+    if not math.isfinite(args.delay_seconds) or args.delay_seconds < 0:
+        parser.error('--delay-seconds must be a non-negative finite number')
     if (args.input_cost_per_million is None) != (args.output_cost_per_million is None):
         parser.error('supply both input and output costs together')
     try:
@@ -219,12 +240,14 @@ def main() -> int:
         if inputs is not None:
             records, summary = benchmark_semantic_input_records(
                 inputs, provider, provider_name=args.provider, model=args.model,
+                delay_seconds=args.delay_seconds,
             )
         else:
             with Session(get_engine(), autoflush=False) as session:
                 ids = load_video_ids(video_ids=args.video_id, limit=args.limit, ids_file=args.ids_file, session=session)
                 records, summary = benchmark_semantic_models(session, provider, provider_name=args.provider,
-                                                              model=args.model, video_ids=ids)
+                                                              model=args.model, video_ids=ids,
+                                                              delay_seconds=args.delay_seconds)
     except ValueError as error:
         parser.error(str(error))
     for record in records:

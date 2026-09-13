@@ -174,6 +174,35 @@ def test_benchmark_validation_diagnostic_never_leaks_input_raw_response_or_api_k
         assert private_value not in encoded
 
 
+def test_benchmark_emits_only_credential_index_and_usage_never_a_key():
+    private_key = 'GEMINI-PRIVATE-KEY'
+    provider = BenchmarkProvider()
+    provider.last_metadata = SemanticProviderExecutionMetadata(
+        usage={'total_tokens': 15}, latency_ms=123, attempts=1, credential_index=1,
+    )
+    records, summary = benchmark_semantic_input_records(
+        [benchmark_module.BenchmarkInputRecord(video_id=uuid4(), language='es', caption='caption', transcript='text')],
+        provider, provider_name='google', model='gemini-3.7-flash',
+    )
+    assert records[0]['credential_index'] == 1
+    assert summary['credential_usage'] == {'1': 1}
+    assert private_key not in json.dumps({'records': records, 'summary': summary})
+
+
+def test_benchmark_delay_is_applied_only_between_input_records(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(benchmark_module.time, 'sleep', sleeps.append)
+    inputs = [
+        benchmark_module.BenchmarkInputRecord(video_id=uuid4(), language='es', caption='caption', transcript='text')
+        for _ in range(3)
+    ]
+    records, _ = benchmark_semantic_input_records(
+        inputs, BenchmarkProvider(), provider_name='openai', model='model-x', delay_seconds=2.5,
+    )
+    assert len(records) == 3
+    assert sleeps == [2.5, 2.5]
+
+
 def test_golden_set_ids_file_contains_ids_only_and_loads_read_only(db, tmp_path):
     video = make_video(db)
     file = tmp_path / 'golden-set.json'
@@ -240,3 +269,24 @@ def test_input_file_main_needs_no_database_or_session(monkeypatch, tmp_path, cap
     output = capsys.readouterr().out
     assert 'Caption-private' not in output and 'Transcript-private' not in output
     assert str(video_id) in output
+
+
+def test_input_file_main_parses_delay_seconds(monkeypatch, tmp_path):
+    video_id = uuid4()
+    path = write_input_file(tmp_path, [input_record(video_id)])
+    provider = BenchmarkProvider()
+    captured = {}
+    monkeypatch.setattr(benchmark_module, 'register_builtin_semantic_providers', lambda: None)
+    monkeypatch.setattr(benchmark_module, 'get_semantic_provider', lambda *args: provider)
+
+    def run(inputs, supplied_provider, **kwargs):
+        captured.update(kwargs)
+        return [], {}
+
+    monkeypatch.setattr(benchmark_module, 'benchmark_semantic_input_records', run)
+    monkeypatch.setattr('sys.argv', [
+        'benchmark_semantic_models.py', '--provider', 'google', '--model', 'gemini-3.7-flash',
+        '--input-file', str(path), '--delay-seconds', '3',
+    ])
+    assert benchmark_module.main() == 0
+    assert captured['delay_seconds'] == 3.0

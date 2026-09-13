@@ -52,6 +52,9 @@ class SemanticProviderExecutionMetadata:
     usage: Mapping[str, int] = field(default_factory=dict)
     latency_ms: int | None = None
     attempts: int = 1
+    # Provider adapters may expose a safe, process-local credential slot. It
+    # is deliberately an index only: no secret-derived identifier is allowed.
+    credential_index: int | None = None
 
 
 @dataclass(frozen=True)

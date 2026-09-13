@@ -11,6 +11,10 @@ from .openai import OpenAISemanticProvider
 
 def _factory(adapter_type):
     def create(config: SemanticProviderConfig):
+        if adapter_type is GoogleSemanticProvider:
+            return adapter_type(
+                config, api_keys=get_settings().semantic_provider_api_keys(config.provider_name),
+            )
         return adapter_type(config, api_key=get_settings().semantic_provider_api_key(config.provider_name))
     return create
 

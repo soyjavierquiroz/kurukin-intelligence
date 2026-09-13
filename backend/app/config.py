@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # selected adapter alone resolves its own key at construction time.
     openai_api_key: SecretStr | None = Field(None, validation_alias='OPENAI_API_KEY', repr=False)
     gemini_api_key: SecretStr | None = Field(None, validation_alias='GEMINI_API_KEY', repr=False)
+    gemini_api_keys: SecretStr | None = Field(None, validation_alias='GEMINI_API_KEYS', repr=False)
     moonshot_api_key: SecretStr | None = Field(None, validation_alias='MOONSHOT_API_KEY', repr=False)
     deepseek_api_key: SecretStr | None = Field(None, validation_alias='DEEPSEEK_API_KEY', repr=False)
 
@@ -113,6 +114,23 @@ class Settings(BaseSettings):
         if key is None or not key.get_secret_value().strip():
             raise RuntimeError('semantic_provider_api_key_missing')
         return key.get_secret_value()
+
+    def semantic_provider_api_keys(self, provider_name: str) -> tuple[str, ...]:
+        """Resolve provider credentials without recording their values.
+
+        Gemini alone currently supports a development credential pool. A
+        non-empty comma-separated ``GEMINI_API_KEYS`` takes precedence over
+        the legacy single-key setting; empty entries are ignored so an empty
+        pool setting remains backward compatible with ``GEMINI_API_KEY``.
+        """
+        if provider_name == 'google' and self.gemini_api_keys is not None:
+            keys = tuple(
+                value.strip() for value in self.gemini_api_keys.get_secret_value().split(',')
+                if value.strip()
+            )
+            if keys:
+                return keys
+        return (self.semantic_provider_api_key(provider_name),)
 
     max_audio_mb: int = Field(10, ge=1, le=100)
     whisper_model: Literal['base', 'small', 'medium'] = 'small'

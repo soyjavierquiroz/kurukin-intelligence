@@ -207,6 +207,116 @@ def test_native_schema_capability_is_model_aware_and_schema_remains_kurukin_owne
                                   client=client_with(fixture_response('google_semantic_response.json'), [])).capabilities.native_json_schema is False
 
 
+def test_gemini_pool_round_robins_and_uses_only_safe_credential_indices(monkeypatch, caplog):
+    monkeypatch.setattr('app.llm.providers._common.time.sleep', lambda _: None)
+    captured = []
+    provider = GoogleSemanticProvider(
+        SemanticProviderConfig(provider_name='google', model='gemini-3.7-flash'),
+        api_keys=('first-private-key', 'second-private-key'),
+        client=client_with_sequence([
+            fixture_response('google_semantic_response.json'),
+            fixture_response('google_semantic_response.json'),
+        ], captured),
+    )
+
+    provider.extract(PAYLOAD)
+    assert provider.last_metadata.credential_index == 0
+    provider.extract(PAYLOAD)
+    assert provider.last_metadata.credential_index == 1
+    assert [request.headers['x-goog-api-key'] for request in captured] == [
+        'first-private-key', 'second-private-key',
+    ]
+    assert 'first-private-key' not in caplog.text
+    assert 'second-private-key' not in caplog.text
+
+
+def test_gemini_pool_moves_429_to_next_credential_and_skips_cooldown(monkeypatch):
+    monkeypatch.setattr('app.llm.providers._common.time.sleep', lambda _: None)
+    captured = []
+    provider = GoogleSemanticProvider(
+        SemanticProviderConfig(provider_name='google', model='gemini-3.7-flash'),
+        api_keys=('first-private-key', 'second-private-key'), cooldown_seconds=60, clock=lambda: 100,
+        client=client_with_sequence([
+            (429, {}), (429, {}), fixture_response('google_semantic_response.json'),
+            fixture_response('google_semantic_response.json'),
+        ], captured),
+    )
+
+    provider.extract(PAYLOAD)
+    assert provider.last_metadata.credential_index == 1
+    provider.extract(PAYLOAD)
+    assert provider.last_metadata.credential_index == 1
+    assert [request.headers['x-goog-api-key'] for request in captured] == [
+        'first-private-key', 'first-private-key', 'second-private-key', 'second-private-key',
+    ]
+
+
+def test_gemini_pool_moves_a_failed_503_to_next_credential(monkeypatch):
+    monkeypatch.setattr('app.llm.providers._common.time.sleep', lambda _: None)
+    captured = []
+    provider = GoogleSemanticProvider(
+        SemanticProviderConfig(provider_name='google', model='gemini-3.7-flash'),
+        api_keys=('first-private-key', 'second-private-key'),
+        client=client_with_sequence([
+            (503, {}), (503, {}), fixture_response('google_semantic_response.json'),
+        ], captured),
+    )
+
+    assert provider.extract(PAYLOAD) == minimum_output()
+    assert provider.last_metadata.credential_index == 1
+    assert provider.last_metadata.attempts == 3
+    assert [request.headers['x-goog-api-key'] for request in captured] == [
+        'first-private-key', 'first-private-key', 'second-private-key',
+    ]
+
+
+def test_gemini_pool_disables_auth_failures_and_normalizes_all_unavailable(monkeypatch):
+    monkeypatch.setattr('app.llm.providers._common.time.sleep', lambda _: None)
+    captured = []
+    provider = GoogleSemanticProvider(
+        SemanticProviderConfig(provider_name='google', model='gemini-3.7-flash'),
+        api_keys=('first-private-key', 'second-private-key'), cooldown_seconds=60, clock=lambda: 100,
+        client=client_with_sequence([
+            (401, {}), fixture_response('google_semantic_response.json'),
+            (429, {}), (429, {}),
+        ], captured),
+    )
+
+    provider.extract(PAYLOAD)
+    assert provider.last_metadata.credential_index == 1
+    with pytest.raises(SemanticProviderError, match='rate_limited'):
+        provider.extract(PAYLOAD)
+    with pytest.raises(SemanticProviderError, match='provider_unavailable') as error:
+        provider.extract(PAYLOAD)
+    assert error.value.attempts == 0
+    assert [request.headers['x-goog-api-key'] for request in captured] == [
+        'first-private-key', 'second-private-key', 'second-private-key', 'second-private-key',
+    ]
+
+
+def test_gemini_schema_failure_is_not_retried_or_rotated_by_the_adapter():
+    captured = []
+    provider = GoogleSemanticProvider(
+        SemanticProviderConfig(provider_name='google', model='gemini-3.7-flash'),
+        api_keys=('first-private-key', 'second-private-key'),
+        client=client_with(fixture_response('google_semantic_response.json', {'bad': 'contract'}), captured),
+    )
+
+    with pytest.raises(ValueError):
+        validate_semantic_output(provider.extract(PAYLOAD))
+    assert len(captured) == 1
+    assert provider.last_metadata.credential_index == 0
+
+
+def test_builtin_google_registry_uses_gemini_api_keys_pool(monkeypatch):
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.setenv('GEMINI_API_KEYS', 'first-private-key, second-private-key')
+    register_builtin_semantic_providers()
+    provider = get_semantic_provider('google', SemanticProviderConfig(provider_name='google', model='gemini-3.7-flash'))
+    assert isinstance(provider, GoogleSemanticProvider)
+    assert provider._api_keys == ('first-private-key', 'second-private-key')
+
+
 @pytest.mark.parametrize('name,_,__,env_name', ADAPTERS)
 def test_builtin_registry_selects_only_the_selected_provider_key(monkeypatch, name, _, __, env_name):
     monkeypatch.setenv(env_name, 'selected-key')
