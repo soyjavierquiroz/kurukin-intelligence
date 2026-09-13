@@ -8,6 +8,7 @@ COPY app ./app
 RUN test -f /app/app/audio_models/yamnet.onnx && test -f /app/app/audio_models/yamnet_class_map.csv
 COPY alembic.ini .
 COPY alembic ./alembic
+COPY ops/semantic_viral_dna_canary.py ./ops/semantic_viral_dna_canary.py
 RUN mkdir -p /models/huggingface /tmp/kurukin /data/audio-queue && chmod 700 /tmp/kurukin
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
