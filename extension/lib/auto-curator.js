@@ -32,11 +32,12 @@
       case 'STOP': state.status='stopped'; break;
       case 'SKIP': if(current){update('skipped');state.active_channel_id=null;} break;
       case 'OPENING': update('opening',{started_at:current?.started_at||at}); break;
-      case 'SCANNING': update('scanning'); break;
+      case 'SCANNING': update('scanning',{navigation_attempts:0}); break;
       case 'SCAN_COMPLETE': update('scan_complete',{scan_id:event.scan_id||current?.scan_id,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0}); break;
       case 'ACQUIRING': update('acquiring',{analysis_id:event.analysis_id||current?.analysis_id,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
       case 'PROGRESS': update(current?.status||'acquiring',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
       case 'WAITING': update('waiting',{last_error:event.error||null,retry_at:now()+RETRY_MS}); break;
+      case 'REOPEN': {const attempts=(current?.navigation_attempts||0)+1;if(attempts>4){update('error',{last_error:'NAVIGATION_TARGET_MISMATCH',navigation_attempts:attempts});state.status='paused';}else{state.status='running';update('opening',{last_error:null,navigation_attempts:attempts});}break;}
       case 'NEEDS_USER': update('needs_user',{last_error:event.error||'TikTok requires manual intervention'}); state.status='paused'; break;
       case 'ERROR': update('error',{last_error:event.error||'AUTO_CURATOR_ERROR'}); state.status='paused'; break;
       case 'COMPLETE': if(current){update('exhausted',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current.processed_count,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current.acquired_count});update('completed');state.active_channel_id=null;} break;
@@ -50,13 +51,20 @@
     const schedule=async state=>{const c=active(state);if(state.status==='running'&&c?.status==='waiting'&&Number.isFinite(c.retry_at)&&alarms?.create)await alarms.create('kurukin-auto-curator-retry',{when:c.retry_at});};
     async function lock(state){const at=now(), held=state.lock;if(held&&held.owner!==instanceId&&held.expires_at>at)return null;state.lock={owner:instanceId,expires_at:at+LOCK_MS};return state;}
     async function persistTransition(event){let state=await lock(await load());if(!state)return null;state=transition(state,event,now);await save(state);await schedule(state);return state;}
+    async function open(state,channel,navigateFallback=false){
+      // A persisted active channel is never permission to scan whichever profile is
+      // currently visible. `ensure` returns true only after Chrome confirms its URL.
+      if(tabs?.ensure){const onTarget=await tabs.ensure(state.tab_id,channel);if(onTarget&&tabs?.run)await tabs.run(state.tab_id,channel);return onTarget;}
+      if(navigateFallback&&tabs?.navigate){await tabs.navigate(state.tab_id,channel.profile_url);return false;}
+      if(tabs?.run)await tabs.run(state.tab_id,channel);return true;
+    }
     async function tick(){let state=await lock(await load());if(!state)return null;if(state.status!=='running'){await save(state);return state;}const c=active(state);
       if(c?.status==='waiting'&&c.retry_at>now()){await save(state);await schedule(state);return state;}
-      if(c?.status==='waiting'){state=transition(state,{type:'OPENING'},now);await save(state);if(tabs?.run)await tabs.run(state.tab_id,active(state));return state;}
-      if(c){await save(state);if(c.status==='opening'&&tabs?.run)await tabs.run(state.tab_id,c);return state;}
+      if(c?.status==='waiting'){state=transition(state,{type:'OPENING'},now);await save(state);await open(state,active(state));return state;}
+      if(c){await save(state);return state;}
       const next=state.channels.find(item=>item.status==='pending');
       if(!next){state.status='completed';state.updated_at=nowISO(now);await save(state);return state;}
-      state.active_channel_id=next.id;state=transition(state,{type:'OPENING'},now);await save(state);if(tabs?.navigate)await tabs.navigate(state.tab_id,next.profile_url);return state;
+      state.active_channel_id=next.id;state=transition(state,{type:'OPENING'},now);await save(state);await open(state,next,true);return state;
     }
     let chain=Promise.resolve();
     const exclusive=operation=>{const next=chain.then(operation,operation);chain=next.catch(()=>{});return next;};
@@ -69,12 +77,13 @@
       state=queue(input,tabId,now);state.lock={owner:instanceId,expires_at:now()+LOCK_MS};await save(state);return tick();
     }
     async function pause(){const state=await persistTransition({type:'PAUSE'});if(state&&tabs?.pause)await tabs.pause(state.tab_id);return state;}
-    async function resume(){const state=await persistTransition({type:'RESUME'});return state?.status==='running'?tick():state;}
+    async function resume(){const state=await persistTransition({type:'RESUME'});if(state?.status==='running'&&active(state)?.status==='opening')await open(state,active(state));return state;}
     async function stop(){const state=await persistTransition({type:'STOP'});if(state&&tabs?.pause)await tabs.pause(state.tab_id);return state;}
+    async function clear(){let state=await lock(await load());if(!state)return null;const tabId=state.tab_id;state=empty(now);await save(state);if(alarms?.clear)await alarms.clear('kurukin-auto-curator-retry');if(tabs?.pause&&Number.isInteger(tabId))await tabs.pause(tabId);return state;}
     async function skip(){const state=await persistTransition({type:'SKIP'});return state?.status==='running'?tick():state;}
-    async function event(event){const state=await persistTransition(event);return state?.status==='running'&&['COMPLETE','WAITING'].includes(event.type)?tick():state;}
-    async function ready(tabId){const state=await lock(await load());if(!state||state.status!=='running'||state.tab_id!==tabId){if(state)await save(state);return state;}const c=active(state);await save(state);if(c&&c.status!=='waiting'&&tabs?.run)await tabs.run(tabId,c);return state;}
-    return Object.freeze({key:KEY,load,enqueue:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),start:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),stop:()=>exclusive(stop),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),tick:()=>exclusive(tick)});
+    async function event(event){const state=await persistTransition(event);if(event.type==='REOPEN'&&state?.status==='running'&&active(state)?.status==='opening'){await open(state,active(state),true);return state;}return state?.status==='running'&&['COMPLETE','WAITING'].includes(event.type)?tick():state;}
+    async function ready(tabId){const state=await lock(await load());if(!state||state.status!=='running'||state.tab_id!==tabId){if(state)await save(state);return state;}const c=active(state);await save(state);if(c&&c.status==='opening')await open(state,c);return state;}
+    return Object.freeze({key:KEY,load,enqueue:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),start:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),stop:()=>exclusive(stop),clear:()=>exclusive(clear),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),tick:()=>exclusive(tick)});
   }
   const api=Object.freeze({KEY,VERSION,LOCK_MS,RETRY_MS,globals,channels,normalized,normalize,empty,queue,valid,active,transition,create});
   root.KurukinAutoCurator=api;if(typeof module!=='undefined')module.exports=api;
