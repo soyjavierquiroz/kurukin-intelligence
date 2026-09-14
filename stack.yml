@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   api:
-    image: kurukin-tiktok-api:semantic-canary-b490e7a
+    image: kurukin-tiktok-api:auto-curator-089-b9e4f24
     networks:
       - general_network
       - traefik_public
@@ -66,7 +66,7 @@ services:
         reservations:
           memory: 256M
   whisper-worker:
-    image: kurukin-tiktok-api:semantic-canary-b490e7a
+    image: kurukin-tiktok-api:auto-curator-089-b9e4f24
     command: [python, -m, app.workers.whisper]
     networks: [general_network]
     secrets:
