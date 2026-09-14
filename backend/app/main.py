@@ -108,7 +108,7 @@ async def database_error(request, exc):
     return JSONResponse(status_code=503, content={'detail': 'Database unavailable'})
 
 
-from .schemas import AnalysisInput, BrowserAcquisitionFailure
+from .schemas import AnalysisInput, AnalysisCheckpointInput, BrowserAcquisitionFailure
 
 
 @app.post('/api/v1/analyses', status_code=201)
@@ -117,6 +117,23 @@ def ingest(payload: AnalysisInput, db: Session = Depends(get_db)):
     with inbox_lock() as root:
         capacity(db, root)
         analysis = create_analysis(db, payload)
+        result = analysis_response(db, analysis)
+        db.commit()
+        return result
+
+
+@app.post('/api/v1/analyses/checkpoints')
+def ingest_checkpoint(payload: AnalysisCheckpointInput, db: Session = Depends(get_db)):
+    """Append a safe browser checkpoint to its client-created logical analysis.
+
+    The request contains normalized public metadata only.  Replaying it uses
+    the existing (analysis_id, video_id) uniqueness boundary and never creates
+    another scan or analysis.
+    """
+    from .jobs import inbox_lock, capacity
+    with inbox_lock() as root:
+        capacity(db, root)
+        analysis = create_analysis(db, payload, analysis_id=payload.analysis_id)
         result = analysis_response(db, analysis)
         db.commit()
         return result

@@ -282,28 +282,47 @@ def resolve_channel(db, profile):
     return channel
 
 
-def create_analysis(db, payload):
+def create_analysis(db, payload, analysis_id=None):
+    """Create or append a browser checkpoint to one logical analysis.
+
+    ``analysis_id`` is supplied only by the resumable browser endpoint.  The
+    unique snapshot pair makes replaying a checkpoint harmless; there is no
+    server-side TikTok pagination or scan state.
+    """
     channel = resolve_channel(db, payload.profile)
     # Preserve the old response field immediately; it is overwritten with the
     # channel-global median after this scan's observations have been recorded.
     _, ranked = rank_videos(payload.videos)
-    analysis = Analysis(channel_id=channel.id, video_count=len(ranked), median_views=Decimal(0),
-                        requested_transcripts=0, videos_new=0, videos_refreshed=0)
-    db.add(analysis)
-    db.flush()
+    analysis = db.get(Analysis, analysis_id) if analysis_id is not None else None
+    if analysis is not None:
+        if analysis.channel_id != channel.id:
+            raise HTTPException(409, 'Analysis belongs to another channel')
+    else:
+        analysis = Analysis(id=analysis_id, channel_id=channel.id, video_count=0, median_views=Decimal(0),
+                            requested_transcripts=0, videos_new=0, videos_refreshed=0)
+        db.add(analysis)
+        db.flush()
     existing = {v.tiktok_id: v for v in db.scalars(select(Video).where(Video.tiktok_id.in_(
         [v.id for v in payload.videos])).order_by(Video.id).with_for_update())}
-    candidates = []
+    current_snapshots = {snapshot.video_id: snapshot for snapshot in db.scalars(
+        select(VideoSnapshot).where(VideoSnapshot.analysis_id == analysis.id))}
     for rank, (item, rates) in enumerate(ranked, 1):
         video = existing.get(item.id)
+        snapshot = current_snapshots.get(video.id) if video is not None else None
+        video_is_new = video is None
         if video is None:
             video = Video(channel_id=channel.id, tiktok_id=item.id, first_seen_at=now(), last_seen_at=now())
             db.add(video)
-            analysis.videos_new += 1
+            is_new_snapshot = True
         elif video.channel_id != channel.id:
             raise HTTPException(409, 'Video belongs to another channel')
         else:
-            analysis.videos_refreshed += 1
+            is_new_snapshot = snapshot is None
+        if is_new_snapshot:
+            if video_is_new:
+                analysis.videos_new += 1
+            else:
+                analysis.videos_refreshed += 1
         for key in ('author', 'nickname', 'caption', 'duration', 'url'):
             value = getattr(item, key)
             if value is not None:
@@ -319,18 +338,26 @@ def create_analysis(db, payload):
         video.updated_at = now()
         db.flush()
         eligible, reason = eligibility(item.duration)
-        snapshot = VideoSnapshot(analysis_id=analysis.id, video_id=video.id, overall_rank=rank,
-            transcript_eligible=eligible, transcript_skip_reason=reason, **rates,
-            **{k: getattr(item, k) for k in ('views', 'likes', 'comments', 'shares', 'favorites')})
-        db.add(snapshot)
+        if snapshot is None:
+            snapshot = VideoSnapshot(analysis_id=analysis.id, video_id=video.id, overall_rank=rank,
+                transcript_eligible=eligible, transcript_skip_reason=reason, **rates,
+                **{k: getattr(item, k) for k in ('views', 'likes', 'comments', 'shares', 'favorites')})
+            db.add(snapshot)
+            db.flush()
+            current_snapshots[video.id] = snapshot
+        else:
+            snapshot.overall_rank = rank
+            snapshot.transcript_eligible = eligible
+            snapshot.transcript_skip_reason = reason
+            for key, value in {**rates, **{k: getattr(item, k) for k in ('views', 'likes', 'comments', 'shares', 'favorites')}}.items():
+                setattr(snapshot, key, value)
     db.flush()
+    analysis.video_count = len(current_snapshots)
 
     # Re-rank from the latest observation of every global video in this channel,
     # not just the incoming payload.  Historical snapshot ranks remain intact.
     median_views, global_ranked = global_ranked_videos(db, channel.id)
     analysis.median_views = median_views
-    current_snapshots = {snapshot.video_id: snapshot for snapshot in db.scalars(
-        select(VideoSnapshot).where(VideoSnapshot.analysis_id == analysis.id))}
     for rank, (video, _latest, rates, _transcript) in enumerate(global_ranked, 1):
         snapshot = current_snapshots.get(video.id)
         if snapshot is not None:

@@ -1,4 +1,5 @@
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -83,6 +84,36 @@ class AnalysisInput(StrictModel):
             raise ValueError('Duplicate video IDs')
         if any(v.author.lower() != self.profile.username.lower() for v in self.videos):
             raise ValueError('All video authors must match profile.username')
+        return self
+
+
+class AnalysisCheckpointInput(AnalysisInput):
+    """A safe, idempotent browser checkpoint for one logical analysis scan."""
+    analysis_id: UUID
+    scan_id: UUID
+    checkpoint_number: Annotated[int, Field(ge=1, le=1000)]
+    checkpoint_count: Annotated[int, Field(ge=1, le=1000)]
+    discovered_count: Annotated[int, Field(ge=1, le=500)]
+    target: Annotated[int, Field(ge=1, le=200)]
+
+    @field_validator('analysis_id', 'scan_id', mode='before')
+    @classmethod
+    def wire_uuid_is_canonical(cls, value):
+        # JSON has no UUID scalar.  Parse only canonical UUID strings before
+        # strict model validation, rather than weakening the whole contract.
+        if not isinstance(value, str):
+            raise ValueError('UUID string required')
+        parsed = UUID(value)
+        if str(parsed) != value.lower():
+            raise ValueError('canonical UUID required')
+        return parsed
+
+    @model_validator(mode='after')
+    def checkpoint_is_coherent(self):
+        if self.checkpoint_count != self.checkpoint_number:
+            raise ValueError('checkpoint_count must equal checkpoint_number')
+        if self.discovered_count > self.target:
+            raise ValueError('discovered_count must not exceed target')
         return self
 
 

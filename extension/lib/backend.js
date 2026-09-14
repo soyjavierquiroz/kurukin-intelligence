@@ -18,6 +18,26 @@
     if(typeof body?.analysis_id!=='string')throw failure('BACKEND_REJECTED',response.status,'INVALID_RESPONSE');
     return {analysisId:body.analysis_id,requests:requests(body)};
   }
+  async function checkpoint(fetcher,payload){
+    let response;
+    try{response=await fetcher(endpoint('/api/v1/analyses/checkpoints'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});}
+    catch{throw failure('BACKEND_UNAVAILABLE');}
+    if(response.status!==200)throw failure(response.status>=500?'BACKEND_UNAVAILABLE':'BACKEND_REJECTED',response.status,'HTTP_RESPONSE');
+    let body;
+    try{body=await response.json();}catch{throw failure('BACKEND_REJECTED',response.status,'INVALID_RESPONSE');}
+    if(typeof body?.analysis_id!=='string')throw failure('BACKEND_REJECTED',response.status,'INVALID_RESPONSE');
+    return {analysisId:body.analysis_id,requests:requests(body)};
+  }
+  async function nextBatch(fetcher,analysisId){
+    let response;
+    try{response=await fetcher(endpoint(`/api/v1/analyses/${encodeURIComponent(analysisId)}/acquisition-batches`),{method:'POST'});}
+    catch{throw failure('BACKEND_UNAVAILABLE');}
+    if(response.status!==200)throw failure(response.status>=500?'BACKEND_UNAVAILABLE':'BACKEND_REJECTED',response.status,'HTTP_RESPONSE');
+    let body;
+    try{body=await response.json();}catch{throw failure('BACKEND_REJECTED',response.status,'INVALID_RESPONSE');}
+    if(typeof body?.analysis_id!=='string')throw failure('BACKEND_REJECTED',response.status,'INVALID_RESPONSE');
+    return {analysisId:body.analysis_id,requests:requests(body)};
+  }
   async function upload(fetcher,analysisId,tiktokId,audio){
     const body=new FormData();
     body.append('audio',audio instanceof Blob&&audio.type==='audio/wav'?audio:new Blob([audio],{type:'audio/wav'}),'audio.wav');
@@ -39,7 +59,7 @@
   }
   const diagnostic=error=>{const value=error?.diagnostic;return {baseHost:BASE_HOST,httpStatus:safeStatus(value?.httpStatus),errorCode:['NETWORK_ERROR','HTTP_RESPONSE','INVALID_RESPONSE','RUNTIME_ERROR'].includes(value?.errorCode)?value.errorCode:'RUNTIME_ERROR'};};
   const safeError=error=>({code:['BACKEND_UNAVAILABLE','BACKEND_REJECTED'].includes(error?.code)?error.code:'BACKEND_UNAVAILABLE',diagnostic:diagnostic(error)});
-  const api=Object.freeze({BASE_URL,BASE_HOST,endpoint,requests,reserve,upload,reportFailure,safeError,diagnostic});
+  const api=Object.freeze({BASE_URL,BASE_HOST,endpoint,requests,reserve,checkpoint,nextBatch,upload,reportFailure,safeError,diagnostic});
   root.KurukinBackend=api;
   if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

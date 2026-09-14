@@ -1,4 +1,4 @@
-# Kurukin Intelligence 0.8.8
+# Kurukin Intelligence 0.8.9
 
 La ruta normal es deliberadamente estrecha:
 
@@ -8,10 +8,13 @@ TikTok MP4 (RAM, MAIN) -> decode -> PCM mono 16 kHz -> WAV PCM16
   -> liberar referencias -> siguiente vídeo
 ```
 
-El cliente crea el análisis con metadata pública normalizada, recibe las
-`enrichment_requests` reservadas por el backend y procesa como máximo el lote
-que éste devuelve (la validación actual usa un único vídeo). Un `202` es **Audio secured**:
-no hay polling de YAMNet, Whisper, transcript ni estado de job.
+Auto Curator descubre en checkpoints internos de 50 publicaciones. Cada
+checkpoint seguro se guarda localmente antes de entregarse al backend contra el
+mismo `analysis_id` y scan lógico; el backend puede empezar a procesar el lote
+anterior mientras Chrome continúa con el siguiente. La reanudación conserva el
+cursor seguro, conteo confirmado e identificadores del análisis; no persiste
+cookies, tokens, URLs de media ni audio. Un `202` es **Audio secured**: no hay
+polling de YAMNet, Whisper, transcript ni estado de job.
 
 ## Backend endpoint
 
@@ -27,7 +30,8 @@ guarda ninguna cookie, token, header ni URL de media.
    pestaña TikTok.
 2. En un perfil TikTok con sesión iniciada, abre el sidebar y agrega los
    canales en **AUTO CURATOR**. La cola válida se guarda y arranca sola; el
-   curador realiza scan, reserva y adquisición secuencialmente. Los únicos
+   curador realiza discovery incremental, una adquisición normal por checkpoint
+   y un drain final de reservas aceptadas, sin esperar transcripciones. Los únicos
    controles operativos son Pause, Resume, Stop, Skip current y Clear queue
    cuando es seguro.
 3. La extensión abre en Product Mode. Para generar el paquete local de

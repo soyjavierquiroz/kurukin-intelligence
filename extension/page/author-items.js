@@ -62,16 +62,23 @@
         signal?.removeEventListener('abort', cancel);
       }
     }
-    async function scan({target, signal, onProgress = () => {}, onItem = () => {}}) {
-      const start = Date.now(), videos = new Map(), cursors = new Set(['0']);
-      let page = 0, cursor = '0', emptyPages = 0, debug = S.debug();
-      const progress = phase => onProgress({phase, total: videos.size, page, elapsedMs: Date.now() - start, debug: S.debug(debug)});
+    async function scan({target, signal, onProgress = () => {}, onItem = () => {}, onCheckpoint = null, checkpointSize = 50, resume = null}) {
+      const start = Date.now(), videos = new Map(), cursors = new Set();
+      const restored=resume&&typeof resume==='object'?resume:null;
+      const resumeValid=typeof restored?.cursor==='string'&&/^(0|[1-9]\d{0,39})$/.test(restored.cursor);
+      // A stale cursor falls back to a complete safe replay.  The backend
+      // upsert boundary keeps already-confirmed snapshots intact.
+      const base=resumeValid&&Number.isSafeInteger(restored?.discoveredCount)&&restored.discoveredCount>=0&&restored.discoveredCount<=target?restored.discoveredCount:0;
+      let page = 0, cursor = resumeValid?restored.cursor:'0', emptyPages = 0, debug = S.debug(), checkpointNumber=resumeValid&&Number.isSafeInteger(restored?.checkpointNumber)?restored.checkpointNumber:0;
+      const restoredSeen=new Set(resumeValid&&Array.isArray(restored?.seenIds)?restored.seenIds.filter(id=>/^\d{5,30}$/.test(id)):[]), pending=[];
+      cursors.add(cursor);
+      const progress = phase => onProgress({phase, total: base + videos.size, page, elapsedMs: Date.now() - start, debug: S.debug(debug)});
       const check = username => {
         if (signal?.aborted) throw S.fail('DIRECT_CANCELLED');
         if (context.targetUsername() !== username) throw S.fail('DIRECT_TARGET_MISSING');
       };
       try {
-        if (![50,100,200].includes(target)) throw S.fail('DIRECT_INTERNAL');
+        if (!Number.isSafeInteger(target)||target<1||target>200||!Number.isSafeInteger(checkpointSize)||checkpointSize<1||checkpointSize>50) throw S.fail('DIRECT_INTERNAL');
         progress('preparing');
         const username = context.targetUsername();
         if (!username) throw S.fail('DIRECT_TARGET_MISSING');
@@ -82,7 +89,7 @@
         if (!context.isLoggedIn(app)) throw S.fail('DIRECT_LOGIN_REQUIRED');
         const profile = context.getTargetProfileData(username);
         if (!profile?.secUid) throw S.fail('DIRECT_TARGET_MISSING');
-        while (videos.size < target) {
+        while (base + videos.size < target) {
           check(username);
           if (!context.isLoggedIn(app)) throw S.fail('DIRECT_LOGIN_REQUIRED');
           page++;
@@ -102,19 +109,26 @@
             }
           }
           check(username);
-          const before = videos.size;
+          const before = videos.size, pageCursor=cursor, pageSeen=[];
           for (const item of data.itemList) {
             const video = N.normalize(item);
-            if (video && video.author.toLowerCase() === username.toLowerCase() && videos.size < target) { videos.set(video.id, video); onItem(item, video); }
+            if (!video || video.author.toLowerCase() !== username.toLowerCase() || base + videos.size >= target || restoredSeen.has(video.id)) continue;
+            if (!videos.has(video.id)) {videos.set(video.id, video);pending.push(video);pageSeen.push(video.id);onItem(item, video);}
+            if (onCheckpoint&&pending.length===checkpointSize) {
+              checkpointNumber++;
+              await onCheckpoint({videos:pending.splice(0,checkpointSize),checkpointNumber,checkpointCount:checkpointNumber,discoveredCount:base+videos.size,target,resume:{cursor:pageCursor,seenIds:pageSeen,discoveredCount:base+videos.size,checkpointNumber},complete:false});
+            }
           }
           progress('received');
           emptyPages = videos.size === before ? emptyPages + 1 : 0;
-          if (!debug.hasMore || videos.size >= target) break;
+          if (!debug.hasMore || base + videos.size >= target) break;
           const next = String(data.cursor);
           if (!/^[1-9]\d{0,39}$/.test(next) || cursors.has(next) || emptyPages >= 3 || page >= 1000) throw S.fail('DIRECT_CURSOR_STALLED');
           cursors.add(next);
           cursor = next;
+          restoredSeen.clear();
         }
+        if(onCheckpoint&&pending.length){checkpointNumber++;await onCheckpoint({videos:pending.splice(0),checkpointNumber,checkpointCount:checkpointNumber,discoveredCount:base+videos.size,target,resume:{cursor:debug.hasMore?cursor:'0',seenIds:[],discoveredCount:base+videos.size,checkpointNumber},complete:true});}
         return {videos: [...videos.values()], cancelled: false, elapsedMs: Date.now() - start};
       } catch (error) {
         if (signal?.aborted || error?.code === 'DIRECT_CANCELLED') return {videos: [...videos.values()], cancelled: true, elapsedMs: Date.now() - start};

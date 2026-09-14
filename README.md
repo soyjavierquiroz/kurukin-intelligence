@@ -1,6 +1,6 @@
 # Kurukin Intelligence
 
-Current extension release: **Kurukin Intelligence v0.8.6 — AUTO CURATOR V1**. Normal audio
+Current extension release: **Kurukin Intelligence v0.8.9 — resumable incremental AUTO CURATOR**. Normal audio
 acquisition is browser MP4→WAV followed by server HTTP 202; local Silero/YAMNet
 remain explicit Audio Lab diagnostics only. See [extension/README.md](extension/README.md).
 

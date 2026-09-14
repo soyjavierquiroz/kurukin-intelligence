@@ -6,8 +6,8 @@ import wave
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select, func
-from app.models import AnalysisAcquisition, Channel, TranscriptionJob, Video, VideoSnapshot, Transcript, now
-from app.schemas import AnalysisInput, SENSITIVE
+from app.models import Analysis, AnalysisAcquisition, Channel, TranscriptionJob, Video, VideoSnapshot, Transcript, now
+from app.schemas import AnalysisInput, AnalysisCheckpointInput, SENSITIVE
 from app.services import acquisition_batch, create_analysis, analysis_response, eligibility, coverage, claim_video
 from app.main import process_audio
 from app.ranking import rank_videos
@@ -312,6 +312,61 @@ def test_incremental_scan_counts_metrics_history_and_stable_channel_identity(db)
     assert response['channel']['videos_known'] == 1
     assert response['channel']['transcripts_missing'] == 1
     assert first.id != second.id
+
+
+def test_checkpoint_append_is_idempotent_and_keeps_one_analysis_scan_membership(db, monkeypatch):
+    monkeypatch.setenv('ACQUISITION_BATCH_SIZE', '10')
+    analysis_id = uuid4()
+    first = scoped_payload([str(30000 + i) for i in range(50)], views=list(range(50, 0, -1)))
+    second = scoped_payload([str(30050 + i) for i in range(50)], views=list(range(100, 50, -1)))
+    analysis = create_analysis(db, first, analysis_id=analysis_id)
+    create_analysis(db, second, analysis_id=analysis_id)
+    # A duplicated browser delivery cannot duplicate a global video, snapshot,
+    # or analysis acquisition association.
+    create_analysis(db, first, analysis_id=analysis_id)
+    assert analysis.id == analysis_id
+    assert db.scalar(select(func.count()).select_from(Analysis).where(Analysis.id == analysis_id)) == 1
+    assert db.scalar(select(func.count()).select_from(VideoSnapshot).where(
+        VideoSnapshot.analysis_id == analysis_id)) == 100
+    assert db.get(Analysis, analysis_id).video_count == 100
+    associations = db.scalars(select(AnalysisAcquisition).where(
+        AnalysisAcquisition.analysis_id == analysis_id)).all()
+    assert len({association.video_id for association in associations}) == len(associations)
+    assert analysis_response(db, analysis)['status'] != 'transcribed'
+
+
+def test_checkpoint_schema_rejects_incoherent_or_secret_resume_metadata():
+    data = scoped_payload(['40000']).model_dump()
+    data.update(analysis_id=str(uuid4()), scan_id=str(uuid4()), checkpoint_number=1,
+                checkpoint_count=2, discovered_count=1, target=50)
+    with pytest.raises(ValueError):
+        AnalysisCheckpointInput.model_validate(data)
+    data['checkpoint_count'] = 1
+    data['cookies'] = 'forbidden'
+    with pytest.raises(ValueError):
+        AnalysisCheckpointInput.model_validate(data)
+
+
+def test_checkpoint_endpoint_replays_the_same_analysis_id(db):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.db import get_db
+    first = scoped_payload(['50000']).model_dump()
+    first.update(analysis_id=str(uuid4()), scan_id=str(uuid4()), checkpoint_number=1,
+                 checkpoint_count=1, discovered_count=1, target=50)
+    def session():
+        yield db
+    app.dependency_overrides[get_db] = session
+    try:
+        client = TestClient(app)
+        one = client.post('/api/v1/analyses/checkpoints', json=first)
+        two = client.post('/api/v1/analyses/checkpoints', json=first)
+        assert one.status_code == two.status_code == 200
+        assert one.json()['analysis_id'] == two.json()['analysis_id'] == first['analysis_id']
+        assert db.scalar(select(func.count()).select_from(Analysis)) == 1
+        assert db.scalar(select(func.count()).select_from(VideoSnapshot)) == 1
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_global_gap_selection_does_not_reserve_pending_videos_from_prior_scans(db, monkeypatch):

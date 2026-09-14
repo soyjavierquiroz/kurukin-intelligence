@@ -16,6 +16,40 @@ test('target reached truncates final page and stops', async () => {
   const c=collector(pages), result=await c.instance.scan({target:50});
   assert.equal(result.videos.length,50);assert.equal(c.requests.length,4);assert.equal(c.delays.length,3);
 });
+test('incremental checkpoints are emitted at 50, 100, and 150 without blocking later pages',async()=>{
+  const pages=Array.from({length:10},(_,p)=>page(Array.from({length:16},(_,i)=>String(10000+p*16+i)),String(p+1),true));
+  const c=collector(pages), checkpoints=[];
+  const result=await c.instance.scan({target:150,onCheckpoint:async checkpoint=>checkpoints.push(checkpoint)});
+  assert.equal(result.videos.length,150);
+  assert.deepEqual(checkpoints.map(checkpoint=>checkpoint.discoveredCount),[50,100,150]);
+  assert.ok(checkpoints.every(checkpoint=>checkpoint.videos.length===50));
+  assert.equal(c.requests.length,10);
+});
+test('non-multiple target ends with a final partial checkpoint',async()=>{
+  const pages=Array.from({length:8},(_,p)=>page(Array.from({length:16},(_,i)=>String(10000+p*16+i)),String(p+1),true));
+  const checkpoints=[];
+  await collector(pages).instance.scan({target:120,onCheckpoint:async checkpoint=>checkpoints.push(checkpoint)});
+  assert.deepEqual(checkpoints.map(checkpoint=>checkpoint.discoveredCount),[50,100,120]);
+  assert.deepEqual(checkpoints.map(checkpoint=>checkpoint.videos.length),[50,50,20]);
+  assert.equal(checkpoints.at(-1).complete,true);
+});
+test('resume starts after a confirmed checkpoint and safely replays only its page tail',async()=>{
+  const initial=Array.from({length:4},(_,p)=>page(Array.from({length:16},(_,i)=>String(10000+p*16+i)),String(p+1),true));
+  let saved;
+  await assert.rejects(collector(initial).instance.scan({target:100,onCheckpoint:async checkpoint=>{saved=checkpoint;throw Error('restart');}}));
+  assert.equal(saved.discoveredCount,50);
+  const replay=[page(Array.from({length:16},(_,i)=>String(10048+i)),'4',true),...Array.from({length:3},(_,p)=>page(Array.from({length:16},(_,i)=>String(10064+p*16+i)),String(5+p),true))];
+  const checkpoints=[];
+  await collector(replay).instance.scan({target:100,resume:saved.resume,onCheckpoint:async checkpoint=>checkpoints.push(checkpoint)});
+  assert.deepEqual(checkpoints.map(checkpoint=>checkpoint.discoveredCount),[100]);
+  assert.equal(checkpoints[0].videos.length,50);
+});
+test('invalid resume cursor safely falls back to a complete idempotent replay',async()=>{
+  const pages=Array.from({length:4},(_,p)=>page(Array.from({length:16},(_,i)=>String(10000+p*16+i)),String(p+1),true));
+  const checkpoints=[];
+  await collector(pages).instance.scan({target:50,resume:{cursor:'not-a-cursor',seenIds:['10000'],discoveredCount:100,checkpointNumber:2},onCheckpoint:async checkpoint=>checkpoints.push(checkpoint)});
+  assert.deepEqual(checkpoints.map(checkpoint=>[checkpoint.checkpointNumber,checkpoint.discoveredCount]),[[1,50]]);
+});
 test('dedupe across pages', async () => {
   const c=collector([page(['10000'],'1',true),page(['10000','10001'],'0',false)]);
   assert.equal((await c.instance.scan({target:50})).videos.length,2);

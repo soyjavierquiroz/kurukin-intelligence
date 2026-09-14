@@ -1,9 +1,9 @@
 /* Durable, backend-agnostic queue coordinator. No TikTok data or media is stored here. */
 (function(root){
   'use strict';
-  const KEY='kurukin_auto_curator_v1', VERSION=1, LOCK_MS=60000, RETRY_MS=30000;
+  const KEY='kurukin_auto_curator_v1', VERSION=2, LOCK_MS=60000, RETRY_MS=30000, SCAN_CHECKPOINT_SIZE=50;
   const globals=['idle','running','paused','stopped','completed'];
-  const channels=['pending','opening','scanning','scan_complete','acquiring','waiting','exhausted','completed','paused','error','needs_user','skipped'];
+  const channels=['pending','opening','scanning','checkpointing','interleaving','draining','scan_complete','acquiring','waiting','exhausted','completed','paused','error','needs_user','skipped'];
   const nowISO=now=>new Date(now()).toISOString();
   function normalized(value){
     if(typeof value!=='string')return null;
@@ -32,10 +32,13 @@
       case 'STOP': state.status='stopped'; break;
       case 'SKIP': if(current){update('skipped');state.active_channel_id=null;} break;
       case 'OPENING': update('opening',{started_at:current?.started_at||at}); break;
-      case 'SCANNING': update('scanning',{navigation_attempts:0,scan_target:Number.isSafeInteger(event.scan_target)?event.scan_target:current?.scan_target||null}); break;
+      case 'SCANNING': update('scanning',{navigation_attempts:0,scan_target:Number.isSafeInteger(event.scan_target)?event.scan_target:current?.scan_target||null,analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,resume_state:event.resume_state||current?.resume_state||null,scan_complete:false}); break;
+      case 'CHECKPOINT': update('checkpointing',{analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,scan_target:Number.isSafeInteger(event.target)?event.target:current?.scan_target||null,processed_count:Number.isSafeInteger(event.discovered_count)?event.discovered_count:current?.processed_count||0,checkpoint_count:Number.isSafeInteger(event.checkpoint_count)?event.checkpoint_count:current?.checkpoint_count||0,checkpoint_number:Number.isSafeInteger(event.checkpoint_number)?event.checkpoint_number:current?.checkpoint_number||0,resume_state:event.resume_state||current?.resume_state||null,checkpoint_updated_at:at,scan_complete:event.scan_complete===true}); break;
+      case 'INTERLEAVING': update('interleaving',{analysis_id:event.analysis_id||current?.analysis_id||null,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
+      case 'DRAINING': update('draining',{scan_complete:true,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0}); break;
       case 'SCAN_COMPLETE': update('scan_complete',{scan_id:event.scan_id||current?.scan_id,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0}); break;
       case 'ACQUIRING': update('acquiring',{analysis_id:event.analysis_id||current?.analysis_id,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
-      case 'PROGRESS': update(current?.status||'acquiring',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
+      case 'PROGRESS': update(['checkpointing','interleaving'].includes(current?.status)?current.status:current?.status||'acquiring',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
       case 'WAITING': update('waiting',{last_error:event.error||null,retry_at:now()+RETRY_MS}); break;
       case 'REOPEN': {const attempts=(current?.navigation_attempts||0)+1;if(attempts>4){update('error',{last_error:'NAVIGATION_TARGET_MISMATCH',navigation_attempts:attempts});state.status='paused';}else{state.status='running';update('opening',{last_error:null,navigation_attempts:attempts});}break;}
       case 'NEEDS_USER': update('needs_user',{last_error:event.error||'TikTok requires manual intervention'}); state.status='paused'; break;
@@ -85,6 +88,6 @@
     async function ready(tabId){const state=await lock(await load());if(!state||state.status!=='running'||state.tab_id!==tabId){if(state)await save(state);return state;}const c=active(state);await save(state);if(c&&c.status==='opening')await open(state,c);return state;}
     return Object.freeze({key:KEY,load,enqueue:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),start:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),stop:()=>exclusive(stop),clear:()=>exclusive(clear),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),tick:()=>exclusive(tick)});
   }
-  const api=Object.freeze({KEY,VERSION,LOCK_MS,RETRY_MS,globals,channels,normalized,normalize,empty,queue,valid,active,transition,create});
+  const api=Object.freeze({KEY,VERSION,LOCK_MS,RETRY_MS,SCAN_CHECKPOINT_SIZE,globals,channels,normalized,normalize,empty,queue,valid,active,transition,create});
   root.KurukinAutoCurator=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
