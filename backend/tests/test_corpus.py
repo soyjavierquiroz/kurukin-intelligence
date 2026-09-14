@@ -335,6 +335,27 @@ def test_checkpoint_append_is_idempotent_and_keeps_one_analysis_scan_membership(
     assert analysis_response(db, analysis)['status'] != 'transcribed'
 
 
+def test_three_checkpoint_persists_create_three_normal_batch_opportunities_without_whisper(db, monkeypatch):
+    monkeypatch.setenv('ACQUISITION_BATCH_SIZE', '2')
+    analysis_id = uuid4()
+    checkpoints = [scoped_payload([str(61000 + checkpoint * 10 + item) for item in range(2)])
+                   for checkpoint in range(3)]
+    for checkpoint, payload in enumerate(checkpoints, 1):
+        analysis = create_analysis(db, payload, analysis_id=analysis_id, reserve=False)
+        # Persistence deliberately has no implicit reservation: the browser
+        # must make exactly one normal acquisition-batches call per checkpoint.
+        assert analysis_response(db, analysis)['enrichment_requests'] == []
+        batch = acquisition_batch(db, analysis_id)
+        assert len(batch['enrichment_requests']) == 2
+        assert batch['requested_transcripts'] == checkpoint * 2
+        # This is the terminal backend-accepted browser stage.  No Whisper
+        # worker runs, yet the next checkpoint can reserve its own batch.
+        for request in batch['enrichment_requests']:
+            assert process_audio(analysis_id, request['tiktok_id'], wav(), db, lambda job: None)['status'] == 'queued'
+        assert db.scalar(select(func.count()).select_from(Transcript)) == 0
+    assert analysis.video_count == 6
+
+
 def test_checkpoint_schema_rejects_incoherent_or_secret_resume_metadata():
     data = scoped_payload(['40000']).model_dump()
     data.update(analysis_id=str(uuid4()), scan_id=str(uuid4()), checkpoint_number=1,

@@ -133,7 +133,11 @@ def ingest_checkpoint(payload: AnalysisCheckpointInput, db: Session = Depends(ge
     from .jobs import inbox_lock, capacity
     with inbox_lock() as root:
         capacity(db, root)
-        analysis = create_analysis(db, payload, analysis_id=payload.analysis_id)
+        # Checkpoints deliberately do not reserve work themselves.  The
+        # extension follows this committed persistence with one call to the
+        # normal acquisition-batches endpoint and waits only for HTTP 202/
+        # released attempts before it resumes discovery.
+        analysis = create_analysis(db, payload, analysis_id=payload.analysis_id, reserve=False)
         result = analysis_response(db, analysis)
         db.commit()
         return result

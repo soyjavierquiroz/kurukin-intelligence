@@ -14,12 +14,14 @@
     const channel=match[1].toLowerCase(); return {channel,profile_url:`https://www.tiktok.com/@${channel}`};
   }
   function normalize(input){
-    const values=Array.isArray(input)?input:String(input||'').split(/[\s,;]+/); const seen=new Set(), result=[];
+    const values=Array.isArray(input)?input:String(input||'').split(/[\s,;\\]+/); const seen=new Set(), result=[];
     for(const value of values){const item=normalized(value);if(item&&!seen.has(item.channel)){seen.add(item.channel);result.push(item);}}
     return result;
   }
   function empty(now=Date.now){return {version:VERSION,status:'idle',channels:[],active_channel_id:null,tab_id:null,lock:null,updated_at:nowISO(now)};}
-  function queue(input,tabId,now=Date.now){const at=nowISO(now),items=normalize(input);return {...empty(now),status:items.length?'running':'idle',tab_id:Number.isInteger(tabId)?tabId:null,channels:items.map((item,index)=>({id:`channel-${index}-${item.channel}`,channel:item.channel,profile_url:item.profile_url,status:'pending',started_at:null,updated_at:at,last_error:null,processed_count:0,acquired_count:0,analysis_id:null,scan_id:null}))};}
+  const acquisition=()=>({eligible:0,reserved:0,transferred:0,accepted:0,failed:0,released:0,state:'idle'});
+  function channelRecord(item,index,at){return {id:`channel-${index}-${item.channel}`,channel:item.channel,profile_url:item.profile_url,status:'pending',started_at:null,updated_at:at,last_error:null,processed_count:0,acquired_count:0,analysis_id:null,scan_id:null,checkpoint_saved_count:0,checkpoint_discovered_count:0,discovery_state:'idle',acquisition_state:'idle',drain_state:'scanning',acquisition:acquisition()};}
+  function queue(input,tabId,now=Date.now){const at=nowISO(now),items=normalize(input);return {...empty(now),status:items.length?'running':'idle',tab_id:Number.isInteger(tabId)?tabId:null,channels:items.map((item,index)=>channelRecord(item,index,at))};}
   function valid(state){return !!state&&state.version===VERSION&&globals.includes(state.status)&&Array.isArray(state.channels)&&state.channels.every(c=>c&&typeof c.id==='string'&&typeof c.channel==='string'&&typeof c.profile_url==='string'&&channels.includes(c.status));}
   function active(state){return state.channels.find(c=>c.id===state.active_channel_id)||null;}
   function clone(value){return JSON.parse(JSON.stringify(value));}
@@ -32,10 +34,12 @@
       case 'STOP': state.status='stopped'; break;
       case 'SKIP': if(current){update('skipped');state.active_channel_id=null;} break;
       case 'OPENING': update('opening',{started_at:current?.started_at||at}); break;
-      case 'SCANNING': update('scanning',{navigation_attempts:0,scan_target:Number.isSafeInteger(event.scan_target)?event.scan_target:current?.scan_target||null,analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,resume_state:event.resume_state||current?.resume_state||null,scan_complete:false}); break;
-      case 'CHECKPOINT': update('checkpointing',{analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,scan_target:Number.isSafeInteger(event.target)?event.target:current?.scan_target||null,processed_count:Number.isSafeInteger(event.discovered_count)?event.discovered_count:current?.processed_count||0,checkpoint_count:Number.isSafeInteger(event.checkpoint_count)?event.checkpoint_count:current?.checkpoint_count||0,checkpoint_number:Number.isSafeInteger(event.checkpoint_number)?event.checkpoint_number:current?.checkpoint_number||0,resume_state:event.resume_state||current?.resume_state||null,checkpoint_updated_at:at,scan_complete:event.scan_complete===true}); break;
-      case 'INTERLEAVING': update('interleaving',{analysis_id:event.analysis_id||current?.analysis_id||null,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
-      case 'DRAINING': update('draining',{scan_complete:true,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0}); break;
+      case 'SCANNING': update('scanning',{navigation_attempts:0,scan_target:Number.isSafeInteger(event.scan_target)?event.scan_target:current?.scan_target||null,analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,resume_state:event.resume_state||current?.resume_state||null,scan_complete:false,discovery_state:'scanning',drain_state:'scanning'}); break;
+      case 'CHECKPOINT': update('checkpointing',{analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,scan_target:Number.isSafeInteger(event.target)?event.target:current?.scan_target||null,processed_count:Number.isSafeInteger(event.discovered_count)?event.discovered_count:current?.processed_count||0,checkpoint_count:Number.isSafeInteger(event.checkpoint_count)?event.checkpoint_count:current?.checkpoint_count||0,checkpoint_number:Number.isSafeInteger(event.checkpoint_number)?event.checkpoint_number:current?.checkpoint_number||0,resume_state:event.resume_state||current?.resume_state||null,checkpoint_updated_at:at,scan_complete:event.scan_complete===true,discovery_state:'checkpointing'}); break;
+      case 'CHECKPOINT_SAVED': update('checkpointing',{checkpoint_saved_count:Number.isSafeInteger(event.checkpoint_count)?event.checkpoint_count:current?.checkpoint_saved_count||0,checkpoint_discovered_count:Number.isSafeInteger(event.discovered_count)?event.discovered_count:current?.checkpoint_discovered_count||0,discovery_state:'checkpoint_saved'}); break;
+      case 'INTERLEAVING': update('interleaving',{analysis_id:event.analysis_id||current?.analysis_id||null,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0,discovery_state:'paused_for_acquisition',acquisition_state:'reserved'}); break;
+      case 'ACQUISITION': {const prior=current?.acquisition&&typeof current.acquisition==='object'?current.acquisition:acquisition(),next={...prior};for(const key of ['eligible','reserved','transferred','accepted','failed','released'])if(Number.isSafeInteger(event[key]))next[key]=event[key];if(typeof event.state==='string')next.state=event.state;update(['checkpointing','interleaving'].includes(current?.status)?'interleaving':current?.status||'acquiring',{acquisition:next,acquisition_state:next.state,acquired_count:next.accepted});break;}
+      case 'DRAINING': update('draining',{scan_complete:true,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,discovery_state:'complete',drain_state:'draining'}); break;
       case 'SCAN_COMPLETE': update('scan_complete',{scan_id:event.scan_id||current?.scan_id,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0}); break;
       case 'ACQUIRING': update('acquiring',{analysis_id:event.analysis_id||current?.analysis_id,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
       case 'PROGRESS': update(['checkpointing','interleaving'].includes(current?.status)?current.status:current?.status||'acquiring',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
@@ -43,7 +47,7 @@
       case 'REOPEN': {const attempts=(current?.navigation_attempts||0)+1;if(attempts>4){update('error',{last_error:'NAVIGATION_TARGET_MISMATCH',navigation_attempts:attempts});state.status='paused';}else{state.status='running';update('opening',{last_error:null,navigation_attempts:attempts});}break;}
       case 'NEEDS_USER': update('needs_user',{last_error:event.error||'TikTok requires manual intervention'}); state.status='paused'; break;
       case 'ERROR': update('error',{last_error:event.error||'AUTO_CURATOR_ERROR'}); state.status='paused'; break;
-      case 'COMPLETE': if(current){update('exhausted',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current.processed_count,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current.acquired_count});update('completed');state.active_channel_id=null;} break;
+      case 'COMPLETE': if(current){update('exhausted',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current.processed_count,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current.acquired_count,discovery_state:'complete',acquisition_state:'complete',drain_state:'complete'});update('completed');state.active_channel_id=null;} break;
     }
     state.updated_at=at; return state;
   }
@@ -74,7 +78,7 @@
     async function enqueue(input,tabId){const additions=normalize(input);if(!additions.length)return load();let state=await lock(await load());if(!state)return null;
       if(['running','paused'].includes(state.status)){
         const known=new Set(state.channels.map(channel=>channel.channel));const at=nowISO(now);
-        for(const item of additions)if(!known.has(item.channel)){known.add(item.channel);state.channels.push({id:`channel-${state.channels.length}-${item.channel}`,channel:item.channel,profile_url:item.profile_url,status:'pending',started_at:null,updated_at:at,last_error:null,processed_count:0,acquired_count:0,analysis_id:null,scan_id:null});}
+        for(const item of additions)if(!known.has(item.channel)){known.add(item.channel);state.channels.push(channelRecord(item,state.channels.length,at));}
         if(Number.isInteger(tabId)&&!Number.isInteger(state.tab_id))state.tab_id=tabId;state.updated_at=at;await save(state);return state.status==='running'?tick():state;
       }
       state=queue(input,tabId,now);state.lock={owner:instanceId,expires_at:now()+LOCK_MS};await save(state);return tick();
@@ -83,10 +87,11 @@
     async function resume(){const state=await persistTransition({type:'RESUME'});if(state?.status==='running'&&active(state)?.status==='opening')await open(state,active(state));return state;}
     async function stop(){const state=await persistTransition({type:'STOP'});if(state&&tabs?.pause)await tabs.pause(state.tab_id);return state;}
     async function clear(){let state=await lock(await load());if(!state)return null;const tabId=state.tab_id;state=empty(now);await save(state);if(alarms?.clear)await alarms.clear('kurukin-auto-curator-retry');if(tabs?.pause&&Number.isInteger(tabId))await tabs.pause(tabId);return state;}
+    async function removePending(channelId){let state=await lock(await load());if(!state)return null;const target=state.channels.find(channel=>channel.id===channelId);if(!target||target.status!=='pending'){await save(state);return state;}state.channels=state.channels.filter(channel=>channel.id!==channelId);state.updated_at=nowISO(now);await save(state);return state;}
     async function skip(){const state=await persistTransition({type:'SKIP'});return state?.status==='running'?tick():state;}
     async function event(event){const state=await persistTransition(event);if(event.type==='REOPEN'&&state?.status==='running'&&active(state)?.status==='opening'){await open(state,active(state),true);return state;}return state?.status==='running'&&['COMPLETE','WAITING'].includes(event.type)?tick():state;}
     async function ready(tabId){const state=await lock(await load());if(!state||state.status!=='running'||state.tab_id!==tabId){if(state)await save(state);return state;}const c=active(state);await save(state);if(c&&c.status==='opening')await open(state,c);return state;}
-    return Object.freeze({key:KEY,load,enqueue:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),start:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),stop:()=>exclusive(stop),clear:()=>exclusive(clear),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),tick:()=>exclusive(tick)});
+    return Object.freeze({key:KEY,load,enqueue:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),start:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),stop:()=>exclusive(stop),clear:()=>exclusive(clear),removePending:channelId=>exclusive(()=>removePending(channelId)),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),tick:()=>exclusive(tick)});
   }
   const api=Object.freeze({KEY,VERSION,LOCK_MS,RETRY_MS,SCAN_CHECKPOINT_SIZE,globals,channels,normalized,normalize,empty,queue,valid,active,transition,create});
   root.KurukinAutoCurator=api;if(typeof module!=='undefined')module.exports=api;

@@ -282,7 +282,7 @@ def resolve_channel(db, profile):
     return channel
 
 
-def create_analysis(db, payload, analysis_id=None):
+def create_analysis(db, payload, analysis_id=None, reserve=True):
     """Create or append a browser checkpoint to one logical analysis.
 
     ``analysis_id`` is supplied only by the resumable browser endpoint.  The
@@ -364,11 +364,16 @@ def create_analysis(db, payload, analysis_id=None):
             snapshot.overall_rank = rank
             for key, value in rates.items():
                 setattr(snapshot, key, value)
-    for video, latest, _rates, transcript in analysis_ranked_videos(db, analysis):
-        if analysis.requested_transcripts >= get_settings().acquisition_batch_size:
-            break
-        if transcript is None and eligibility(video.duration)[0]:
-            reserve_for_analysis(db, video, analysis, current_snapshots.get(video.id))
+    # A resumable checkpoint is only durable discovery.  Its caller reserves
+    # exactly one normal acquisition batch afterwards, so discovery can wait
+    # for the browser's HTTP 202s without coupling it to Whisper completion.
+    # The legacy one-shot ingest endpoint retains its original initial reserve.
+    if reserve:
+        for video, latest, _rates, transcript in analysis_ranked_videos(db, analysis):
+            if analysis.requested_transcripts >= get_settings().acquisition_batch_size:
+                break
+            if transcript is None and eligibility(video.duration)[0]:
+                reserve_for_analysis(db, video, analysis, current_snapshots.get(video.id))
     db.flush()
     return analysis
 

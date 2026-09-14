@@ -1,4 +1,4 @@
-# Kurukin Intelligence 0.8.9
+# Kurukin Intelligence 0.8.10
 
 La ruta normal es deliberadamente estrecha:
 
@@ -9,12 +9,13 @@ TikTok MP4 (RAM, MAIN) -> decode -> PCM mono 16 kHz -> WAV PCM16
 ```
 
 Auto Curator descubre en checkpoints internos de 50 publicaciones. Cada
-checkpoint seguro se guarda localmente antes de entregarse al backend contra el
-mismo `analysis_id` y scan lógico; el backend puede empezar a procesar el lote
-anterior mientras Chrome continúa con el siguiente. La reanudación conserva el
-cursor seguro, conteo confirmado e identificadores del análisis; no persiste
-cookies, tokens, URLs de media ni audio. Un `202` es **Audio secured**: no hay
-polling de YAMNet, Whisper, transcript ni estado de job.
+checkpoint seguro se confirma contra el mismo `analysis_id` y scan lógico; a
+continuación reserva un único lote normal, lo procesa secuencialmente en el
+navegador y reanuda discovery cuando cada intento ha recibido HTTP 202 o fue
+liberado. La reanudación conserva el cursor seguro, conteo confirmado e
+identificadores del análisis; no persiste cookies, tokens, URLs de media ni
+audio. Un `202` significa que el backend aceptó el trabajo: no espera polling
+de YAMNet, Whisper, transcript ni estado de job.
 
 ## Backend endpoint
 
@@ -29,14 +30,13 @@ guarda ninguna cookie, token, header ni URL de media.
 1. Carga `extension/` sin empaquetar en `chrome://extensions` y recarga la
    pestaña TikTok.
 2. En un perfil TikTok con sesión iniciada, abre el sidebar y agrega los
-   canales en **AUTO CURATOR**. La cola válida se guarda y arranca sola; el
-   curador realiza discovery incremental, una adquisición normal por checkpoint
-   y un drain final de reservas aceptadas, sin esperar transcripciones. Los únicos
-   controles operativos son Pause, Resume, Stop, Skip current y Clear queue
-   cuando es seguro.
-3. La extensión abre en Product Mode. Para generar el paquete local de
-   operaciones, cambia únicamente `ADMIN_DEBUG_MODE` a `true` en
-   `panel/config.js` antes de empaquetar. Ambos paquetes usan el mismo motor;
+   canales en **AUTO CURATOR**. Acepta `@creator`, `creator` o la URL del perfil;
+   espacios, comas, tabs y líneas nuevas se convierten en chips deduplicados.
+   La cola válida se guarda y arranca sola. Mientras corre, las nuevas entradas
+   sólo se agregan como pendientes y sólo esos chips son eliminables.
+3. La extensión abre en Product Mode. Genera los dos paquetes locales con
+   `./extension/build-packages.sh`: Product es **Kurukin Intelligence** y Admin
+   es **Kurukin Intelligence ADMIN**. Ambos usan los mismos permisos y motor;
    Admin Debug revela los controles manuales y diagnósticos seguros. En ese
    modo, usa **Analizar canal** y, en **Audio acquisition**, pulsa **Reservar lote en servidor** y luego
    **Adquirir audio reservado**. La UI muestra requested, uploaded, failed,

@@ -28,7 +28,12 @@ button:disabled { opacity: .45; cursor: default; }
 #auto-banner { background: #292342; border-radius: 6px; color: #d6d1ff; font-size: 11px; letter-spacing: .04em; padding: 5px 7px; text-align: right; }
 .auto-note, .auto-help { color: #9aa6bc; font-size: 12px; }
 .auto-help { margin: -3px 0 12px; }
-#auto-channels { background: #171c28; border: 1px solid #343d53; border-radius: 8px; color: inherit; font: inherit; margin: 7px 0 10px; padding: 9px; resize: vertical; width: 100%; }
+.channel-tokens { display: flex; flex-wrap: wrap; gap: 7px; margin: 7px 0; min-height: 0; }
+.channel-chip { align-items: center; background: #292342; border: 1px solid #625b9e; border-radius: 999px; color: #e9edf5; display: inline-flex; font-size: 12px; gap: 5px; max-width: 100%; padding: 4px 5px 4px 9px; }
+.channel-chip.active { border-color: #b3aaff; color: #fff; }
+.channel-chip button { background: transparent; border: 0; border-radius: 50%; font-size: 16px; line-height: 1; padding: 0 3px; }
+#auto-channel-input { background: #171c28; border: 1px solid #343d53; border-radius: 8px; color: inherit; font: inherit; margin: 0 0 10px; padding: 9px; width: 100%; }
+#auto-channel-input:focus-visible { outline: 2px solid #b3aaff; outline-offset: 2px; }
 .auto-progress { border-top: 1px solid #343d53; margin-top: 14px; padding-top: 11px; }
 .auto-progress > div { align-items: baseline; color: #9aa6bc; display: flex; font-size: 12px; justify-content: space-between; margin-bottom: 6px; }
 .auto-progress strong { color: #e9edf5; }
