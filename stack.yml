@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   api:
-    image: kurukin-tiktok-api:auto-curator-089-b9e4f24
+    image: kurukin-tiktok-api:auto-curator-0811-3aa039f
     networks:
       - general_network
       - traefik_public
@@ -68,7 +68,7 @@ services:
         reservations:
           memory: 256M
   whisper-worker:
-    image: kurukin-tiktok-api:auto-curator-089-b9e4f24
+    image: kurukin-tiktok-api:auto-curator-0811-3aa039f
     command: [python, -m, app.workers.whisper]
     networks: [general_network]
     secrets:
