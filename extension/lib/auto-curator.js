@@ -32,7 +32,7 @@
       case 'STOP': state.status='stopped'; break;
       case 'SKIP': if(current){update('skipped');state.active_channel_id=null;} break;
       case 'OPENING': update('opening',{started_at:current?.started_at||at}); break;
-      case 'SCANNING': update('scanning',{navigation_attempts:0}); break;
+      case 'SCANNING': update('scanning',{navigation_attempts:0,scan_target:Number.isSafeInteger(event.scan_target)?event.scan_target:current?.scan_target||null}); break;
       case 'SCAN_COMPLETE': update('scan_complete',{scan_id:event.scan_id||current?.scan_id,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0}); break;
       case 'ACQUIRING': update('acquiring',{analysis_id:event.analysis_id||current?.analysis_id,processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
       case 'PROGRESS': update(current?.status||'acquiring',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current?.processed_count||0,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0}); break;
