@@ -11,6 +11,11 @@ def settings(monkeypatch, tmp_path):
     monkeypatch.setenv("AUDIO_QUEUE_MIN_FREE_BYTES", "0")
     monkeypatch.delenv('DATABASE_URL', raising=False)
     monkeypatch.delenv('DATABASE_URL_FILE', raising=False)
+    # Historical corpus tests exercise reservation mechanics independently of
+    # product selection thresholds. Smart-enrichment tests set their own
+    # production-like values explicitly.
+    monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '0')
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '0')
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

@@ -108,7 +108,7 @@ async def database_error(request, exc):
     return JSONResponse(status_code=503, content={'detail': 'Database unavailable'})
 
 
-from .schemas import AnalysisInput, AnalysisCheckpointInput, BrowserAcquisitionFailure
+from .schemas import AnalysisInput, AnalysisCheckpointInput, AcquisitionBatchInput, BrowserAcquisitionFailure
 
 
 @app.post('/api/v1/analyses', status_code=201)
@@ -138,7 +138,7 @@ def ingest_checkpoint(payload: AnalysisCheckpointInput, db: Session = Depends(ge
         # normal acquisition-batches endpoint and waits only for HTTP 202/
         # released attempts before it resumes discovery.
         analysis = create_analysis(db, payload, analysis_id=payload.analysis_id, reserve=False)
-        result = analysis_response(db, analysis)
+        result = analysis_response(db, analysis, discovery_complete=not payload.has_more)
         db.commit()
         return result
 
@@ -158,9 +158,10 @@ from .jobs import receive_audio as process_audio
 
 
 @app.post('/api/v1/analyses/{analysis_id}/acquisition-batches')
-def next_acquisition_batch(analysis_id: UUID, db: Session = Depends(get_db)):
+def next_acquisition_batch(analysis_id: UUID, payload: AcquisitionBatchInput | None = None,
+                           db: Session = Depends(get_db)):
     from .services import acquisition_batch
-    return acquisition_batch(db, analysis_id)
+    return acquisition_batch(db, analysis_id, payload.discovery_complete if payload else False)
 
 
 @app.post('/api/v1/analyses/{analysis_id}/videos/{tiktok_id}/audio', status_code=202)

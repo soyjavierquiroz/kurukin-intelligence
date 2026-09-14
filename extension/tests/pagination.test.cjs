@@ -16,6 +16,18 @@ test('target reached truncates final page and stops', async () => {
   const c=collector(pages), result=await c.instance.scan({target:50});
   assert.equal(result.videos.length,50);assert.equal(c.requests.length,4);assert.equal(c.delays.length,3);
 });
+test('full channel follows pagination until hasMore is false and checkpoints every 50',async()=>{
+  const pages=Array.from({length:5},(_,p)=>page(Array.from({length:16},(_,i)=>String(10000+p*16+i)),String(p+1),p<4));
+  const checkpoints=[],result=await collector(pages).instance.scan({target:'full',onCheckpoint:async checkpoint=>checkpoints.push(checkpoint)});
+  assert.equal(result.videos.length,80);assert.equal(checkpoints.length,2);assert.deepEqual(checkpoints.map(checkpoint=>checkpoint.videos.length),[50,30]);
+  assert.equal(checkpoints[0].hasMore,true);assert.equal(checkpoints[1].hasMore,false);assert.equal(checkpoints[1].complete,true);
+});
+test('an exact final full-channel checkpoint is marked complete without an empty checkpoint',async()=>{
+  const pages=Array.from({length:4},(_,p)=>page(Array.from({length:16},(_,i)=>String(10000+p*16+i)),String(p+1),p<3));
+  pages[3]=page(Array.from({length:2},(_,i)=>String(10048+i)),'0',false);
+  const checkpoints=[];await collector(pages).instance.scan({target:'full',onCheckpoint:async checkpoint=>checkpoints.push(checkpoint)});
+  assert.deepEqual(checkpoints.map(checkpoint=>checkpoint.videos.length),[50]);assert.equal(checkpoints[0].complete,true);assert.equal(checkpoints[0].hasMore,false);
+});
 test('incremental checkpoints are emitted at 50, 100, and 150 without blocking later pages',async()=>{
   const pages=Array.from({length:10},(_,p)=>page(Array.from({length:16},(_,i)=>String(10000+p*16+i)),String(p+1),true));
   const c=collector(pages), checkpoints=[];

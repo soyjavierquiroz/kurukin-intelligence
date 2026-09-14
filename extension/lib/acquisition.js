@@ -11,7 +11,7 @@
   }
   const reserve=(runtime,videos)=>call(runtime,'KURUKIN_BACKEND_RESERVE',{videos});
   const checkpoint=(runtime,payload)=>call(runtime,'KURUKIN_BACKEND_CHECKPOINT',{payload});
-  const nextBatch=(runtime,analysisId)=>call(runtime,'KURUKIN_BACKEND_NEXT_BATCH',{analysisId});
+  const nextBatch=(runtime,analysisId,discoveryComplete=false)=>call(runtime,'KURUKIN_BACKEND_NEXT_BATCH',{analysisId,discoveryComplete:discoveryComplete===true});
   const reportFailure=(runtime,analysisId,tiktokId,code)=>call(runtime,'KURUKIN_BACKEND_FAILURE',{analysisId,tiktokId,code});
   async function upload(runtime,analysisId,tiktokId,buffer){
     let wavBase64=null;

@@ -91,6 +91,60 @@ def analysis_ranked_videos(db, analysis):
             if video.id in scanned_video_ids]
 
 
+def enrichment_eligibility(db, analysis, discovery_complete=False):
+    """Return the current-scan candidates and safe selection diagnostics.
+
+    The ranking input is the full channel corpus, so an outlier score is
+    always relative to the channel's currently available median.  Selection
+    itself remains limited to this logical scan; discovery never turns into a
+    global transcription backfill.
+    """
+    config = get_settings()
+    rows = analysis_ranked_videos(db, analysis)
+    video_ids = [video.id for video, _, _, _ in rows]
+    jobs = {job.video_id: job for job in db.scalars(select(TranscriptionJob).where(
+        TranscriptionJob.video_id.in_(video_ids)))} if video_ids else {}
+    incremental = []
+    final = []
+    incremental_by_views = final_by_views = final_by_outlier = final_total = 0
+    for video, snapshot, rates, transcript in rows:
+        duration_ok = eligibility(video.duration)[0]
+        views_ok = snapshot.views >= config.enrichment_min_views
+        outlier_ok = rates['outlier_score'] >= Decimal(str(config.enrichment_min_outlier_score))
+        if duration_ok and views_ok:
+            incremental_by_views += 1
+            incremental.append((video, snapshot, rates, transcript))
+        if not discovery_complete or not duration_ok:
+            continue
+        if views_ok:
+            final_by_views += 1
+        if outlier_ok:
+            final_by_outlier += 1
+        if views_ok or outlier_ok:
+            final_total += 1
+            final.append((video, snapshot, rates, transcript))
+    selected = final if discovery_complete else incremental
+    candidates, already_resolved = [], 0
+    for video, snapshot, rates, transcript in selected:
+        job = jobs.get(video.id)
+        if transcript is not None or job is not None and job.status in ('completed', 'skipped'):
+            already_resolved += 1
+        else:
+            candidates.append((video, snapshot, rates, transcript))
+    return candidates, dict(
+        median_views_partial=float(analysis.median_views),
+        median_views_final=float(analysis.median_views) if discovery_complete else None,
+        min_views=config.enrichment_min_views,
+        min_outlier=config.enrichment_min_outlier_score,
+        eligible_incremental_by_views=incremental_by_views,
+        eligible_final_by_views=final_by_views if discovery_complete else None,
+        eligible_final_by_outlier=final_by_outlier if discovery_complete else None,
+        eligible_final_total=final_total if discovery_complete else None,
+        eligible_total=final_total if discovery_complete else incremental_by_views,
+        already_resolved_global=already_resolved,
+    )
+
+
 def lease_active(video):
     expiry = video.enrichment_lease_until
     if expiry is not None and expiry.tzinfo is None:
@@ -137,7 +191,7 @@ def coverage(db, channel_id):
                 resolved_enrichment=resolved, resolved_enrichment_coverage=resolved / known if known else 0)
 
 
-def analysis_response(db, analysis):
+def analysis_response(db, analysis, discovery_complete=True):
     rows = refresh_status(db, analysis)
     videos, requests = [], []
     acquisitions = acquisition_rows(db, analysis.id)
@@ -168,6 +222,7 @@ def analysis_response(db, analysis):
     channel = db.get(Channel, analysis.channel_id)
     channel_coverage = dict(username=channel.username, tiktok_user_id=channel.tiktok_user_id,
                             **coverage(db, channel.id))
+    _candidates, enrichment = enrichment_eligibility(db, analysis, discovery_complete)
     scan = dict(videos_seen_this_scan=analysis.video_count, videos_new=analysis.videos_new,
                 videos_refreshed=analysis.videos_refreshed,
                 acquisition_requested=analysis.requested_transcripts)
@@ -177,6 +232,7 @@ def analysis_response(db, analysis):
                 videos_received=analysis.video_count, median_views=float(analysis.median_views),
                 requested_transcripts=analysis.requested_transcripts,
                 completed_transcripts=analysis.completed_transcripts, top_videos=videos,
+                enrichment=enrichment,
                 enrichment_requests=sorted(requests, key=lambda r: r['transcription_rank']))
 
 
@@ -369,35 +425,33 @@ def create_analysis(db, payload, analysis_id=None, reserve=True):
     # for the browser's HTTP 202s without coupling it to Whisper completion.
     # The legacy one-shot ingest endpoint retains its original initial reserve.
     if reserve:
-        for video, latest, _rates, transcript in analysis_ranked_videos(db, analysis):
+        for video, latest, _rates, transcript in enrichment_eligibility(db, analysis, True)[0]:
             if analysis.requested_transcripts >= get_settings().acquisition_batch_size:
                 break
-            if transcript is None and eligibility(video.duration)[0]:
-                reserve_for_analysis(db, video, analysis, current_snapshots.get(video.id))
+            reserve_for_analysis(db, video, analysis, current_snapshots.get(video.id))
     db.flush()
     return analysis
 
 
-def acquisition_batch(db, analysis_id):
+def acquisition_batch(db, analysis_id, discovery_complete=False):
     from .jobs import capacity, inbox_lock
     with inbox_lock() as root:
         capacity(db, root)
         analysis = db.scalar(select(Analysis).where(Analysis.id == analysis_id).with_for_update())
         if analysis is None:
             raise HTTPException(404, 'Unknown analysis')
-        existing = analysis_response(db, analysis)['enrichment_requests']
+        existing = analysis_response(db, analysis, discovery_complete)['enrichment_requests']
         remaining = get_settings().acquisition_batch_size - len(existing)
         snapshots = {snapshot.video_id: snapshot for snapshot in db.scalars(select(VideoSnapshot).where(
             VideoSnapshot.analysis_id == analysis_id))}
-        rows = analysis_ranked_videos(db, analysis)
+        rows = enrichment_eligibility(db, analysis, discovery_complete)[0]
         for video, _snapshot, _rates, transcript in rows:
             if remaining <= 0:
                 break
-            if transcript is None and eligibility(video.duration)[0]:
-                capacity(db, root, new_job=True)
-                if reserve_for_analysis(db, video, analysis, snapshots.get(video.id)):
-                    remaining -= 1
+            capacity(db, root, new_job=True)
+            if reserve_for_analysis(db, video, analysis, snapshots.get(video.id)):
+                remaining -= 1
         db.flush()
-        result = analysis_response(db, analysis)
+        result = analysis_response(db, analysis, discovery_complete)
         db.commit()
         return result

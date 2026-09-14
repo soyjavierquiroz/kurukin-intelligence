@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {S,N,P,item,collector,response} = require('./helpers.cjs');
 const scanId='scan-test-1234';
 test('valid start message',()=>assert.equal(P.valid(P.message('panel','SCAN_START',scanId,{target:50}),'panel'),true));
+test('full channel start message is valid',()=>assert.equal(P.valid(P.message('panel','SCAN_START',scanId,{target:'full'}),'panel'),true));
 for(const bad of [null,{},[],{type:'KURUKIN_SCAN_START'},P.message('panel','SCAN_START','',{target:50}),P.message('panel','SCAN_START',scanId,{target:500}),P.message('page','SCAN_START',scanId,{target:50}),{...P.message('panel','SCAN_START',scanId,{target:50}),extra:'secret'}]) test(`invalid message rejected ${JSON.stringify(bad)}`,()=>assert.equal(P.valid(bad,'panel'),false));
 test('valid progress schema',()=>assert.equal(P.valid(P.message('page','SCAN_PROGRESS',scanId,{phase:'received',total:1,page:1,elapsedMs:5,debug:S.debug({page:1})}),'page'),true));
 test('valid complete schema',()=>assert.equal(P.valid(P.message('page','SCAN_COMPLETE',scanId,{videos:[N.normalize(item())],cancelled:false,elapsedMs:5}),'page'),true));

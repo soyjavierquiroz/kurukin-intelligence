@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     auto_transcribe_max_duration_seconds: float = Field(180, gt=0, allow_inf_nan=False)
     hard_transcribe_max_duration_seconds: float = Field(300, gt=0, allow_inf_nan=False)
     high_value_outlier_threshold: float = Field(2.0, ge=0, allow_inf_nan=False)
+    enrichment_min_views: int = Field(10000, ge=0, validation_alias=AliasChoices('ENRICHMENT_MIN_VIEWS', 'MIN_VIEWS', 'enrichment_min_views'))
+    enrichment_min_outlier_score: float = Field(2.0, ge=0, allow_inf_nan=False,
+                                                validation_alias=AliasChoices('ENRICHMENT_MIN_OUTLIER_SCORE', 'MIN_OUTLIER_SCORE', 'enrichment_min_outlier_score'))
     enrichment_lease_seconds: int = Field(1800, ge=60, le=86400)
 
     # Provider-neutral Semantic Viral DNA routing configuration.  No provider

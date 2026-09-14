@@ -91,10 +91,13 @@ class AnalysisCheckpointInput(AnalysisInput):
     """A safe, idempotent browser checkpoint for one logical analysis scan."""
     analysis_id: UUID
     scan_id: UUID
-    checkpoint_number: Annotated[int, Field(ge=1, le=1000)]
-    checkpoint_count: Annotated[int, Field(ge=1, le=1000)]
-    discovered_count: Annotated[int, Field(ge=1, le=500)]
-    target: Annotated[int, Field(ge=1, le=200)]
+    checkpoint_number: Annotated[int, Field(ge=1, le=1_000_000)]
+    checkpoint_count: Annotated[int, Field(ge=1, le=1_000_000)]
+    discovered_count: Count
+    # ``full`` is the product default. Numeric targets remain intentionally
+    # available for bounded administrative debugging.
+    target: Literal['full'] | Annotated[int, Field(ge=1, le=200)]
+    has_more: bool = False
 
     @field_validator('analysis_id', 'scan_id', mode='before')
     @classmethod
@@ -112,9 +115,14 @@ class AnalysisCheckpointInput(AnalysisInput):
     def checkpoint_is_coherent(self):
         if self.checkpoint_count != self.checkpoint_number:
             raise ValueError('checkpoint_count must equal checkpoint_number')
-        if self.discovered_count > self.target:
+        if isinstance(self.target, int) and self.discovered_count > self.target:
             raise ValueError('discovered_count must not exceed target')
         return self
+
+
+class AcquisitionBatchInput(StrictModel):
+    """Whether this browser request is the final, full-corpus drain."""
+    discovery_complete: bool = False
 
 
 class BrowserAcquisitionFailure(StrictModel):

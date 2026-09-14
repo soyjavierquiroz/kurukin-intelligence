@@ -9,6 +9,7 @@ from sqlalchemy import select, func
 from app.models import Analysis, AnalysisAcquisition, Channel, TranscriptionJob, Video, VideoSnapshot, Transcript, now
 from app.schemas import AnalysisInput, AnalysisCheckpointInput, SENSITIVE
 from app.services import acquisition_batch, create_analysis, analysis_response, eligibility, coverage, claim_video
+from app.config import get_settings
 from app.main import process_audio
 from app.ranking import rank_videos
 from app import audio
@@ -366,6 +367,67 @@ def test_checkpoint_schema_rejects_incoherent_or_secret_resume_metadata():
     data['cookies'] = 'forbidden'
     with pytest.raises(ValueError):
         AnalysisCheckpointInput.model_validate(data)
+
+
+def test_full_channel_checkpoint_accepts_unbounded_discovery_count():
+    data = scoped_payload(['40000']).model_dump()
+    data.update(analysis_id=str(uuid4()), scan_id=str(uuid4()), checkpoint_number=1001,
+                checkpoint_count=1001, discovered_count=50_050, target='full', has_more=True)
+    checkpoint = AnalysisCheckpointInput.model_validate(data)
+    assert checkpoint.target == 'full'
+    assert checkpoint.discovered_count == 50_050
+
+
+def test_smart_enrichment_defers_partial_outliers_and_uses_final_channel_median(db, monkeypatch):
+    monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '10000')
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '2.0')
+    monkeypatch.setenv('ACQUISITION_BATCH_SIZE', '10')
+    get_settings.cache_clear()
+    analysis_id = uuid4()
+    # A first partial corpus would classify 9,000 as a >2 outlier, but it
+    # must not spend an incremental acquisition budget.
+    analysis = create_analysis(db, scoped_payload(['10000', '10001', '10002'], [39.] * 3,
+                                                    [1000, 1000, 9000]), analysis_id=analysis_id,
+                               reserve=False)
+    partial = acquisition_batch(db, analysis.id, discovery_complete=False)
+    assert partial['enrichment']['median_views_partial'] == 1000.0
+    assert partial['enrichment']['median_views_final'] is None
+    assert partial['enrichment']['eligible_incremental_by_views'] == 0
+    assert partial['enrichment_requests'] == []
+    # Completing discovery changes the corpus median to 4,000. The same
+    # 9,000-view video is then a final outlier and is eligible exactly once.
+    create_analysis(db, scoped_payload(['10003', '10004', '10005'], [39.] * 3,
+                                       [4000, 4000, 4000]), analysis_id=analysis_id, reserve=False)
+    final = acquisition_batch(db, analysis.id, discovery_complete=True)
+    assert final['enrichment']['median_views_final'] == 4000.0
+    assert final['enrichment']['eligible_final_by_views'] == 0
+    assert final['enrichment']['eligible_final_by_outlier'] == 1
+    assert [item['tiktok_id'] for item in final['enrichment_requests']] == ['10002']
+
+
+def test_incremental_views_and_final_drain_are_idempotent_and_skip_global_resolution(db, monkeypatch):
+    monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '10000')
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '2.0')
+    monkeypatch.setenv('ACQUISITION_BATCH_SIZE', '10')
+    get_settings.cache_clear()
+    analysis = create_analysis(db, payload((39., 39., 39., 39., 39.),
+                                            [1000, 4000, 9000, 3000, 12000]), reserve=False)
+    incremental = acquisition_batch(db, analysis.id, discovery_complete=False)
+    assert incremental['enrichment']['eligible_incremental_by_views'] == 1
+    assert [item['tiktok_id'] for item in incremental['enrichment_requests']] == ['10004']
+    # The earlier view-selected video is globally resolved before the final
+    # drain, so only the still-missing final outlier remains acquirable.
+    complete(db, db.scalar(select(Video).where(Video.tiktok_id == '10004')))
+    db.commit()
+    final = acquisition_batch(db, analysis.id, discovery_complete=True)
+    assert final['enrichment']['eligible_final_total'] == 2
+    assert final['enrichment']['already_resolved_global'] == 1
+    assert [item['tiktok_id'] for item in final['enrichment_requests']] == ['10002']
+    complete(db, db.scalar(select(Video).where(Video.tiktok_id == '10002')))
+    db.commit()
+    drained = acquisition_batch(db, analysis.id, discovery_complete=True)
+    assert drained['enrichment']['already_resolved_global'] == 2
+    assert drained['enrichment_requests'] == []
 
 
 def test_checkpoint_endpoint_replays_the_same_analysis_id(db):

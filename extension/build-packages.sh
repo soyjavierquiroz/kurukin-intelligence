@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION=0.8.10
+VERSION=0.8.11
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -24,6 +24,7 @@ build_admin() {
   (cd "$STAGE/kurukin-admin" && python3 -m zipfile -c "$ROOT/kurukin-extension-$VERSION-admin-debug.zip" .)
 }
 
-rm -f "$ROOT/kurukin-extension-$VERSION.zip" "$ROOT/kurukin-extension-$VERSION-admin-debug.zip"
+rm -f "$ROOT/kurukin-extension-$VERSION.zip" "$ROOT/kurukin-extension-$VERSION-admin-debug.zip" "$ROOT/kurukin-extension.zip"
 build_product
 build_admin
+cp "$ROOT/kurukin-extension-$VERSION.zip" "$ROOT/kurukin-extension.zip"
