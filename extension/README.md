@@ -1,4 +1,4 @@
-# Kurukin Intelligence 0.8.16
+# Kurukin Intelligence 0.8.17
 
 La ruta normal es deliberadamente estrecha:
 
@@ -20,8 +20,13 @@ desde el navegador. No persiste cookies, tokens, URLs
 de media ni audio. Un `202` significa que el backend aceptó el trabajo: no
 espera polling de YAMNet, Whisper, transcript ni estado de job.
 
-Si un perfil no termina de prepararse, Product Mode muestra una recuperación
-simple: **Retry** conserva el intento actual y vuelve a preparar el perfil;
+Si discovery se interrumpe por una respuesta transitoria del navegador, Product
+Mode muestra **“El análisis se interrumpió. Puedes continuar desde el avance
+guardado.”**. **Retry** conserva el mismo `analysis_id`, `scan_id`, checkpoint,
+cursor, presupuesto y reservas aceptadas; detiene el bridge anterior, verifica
+el perfil, rehidrata el contexto y continúa desde el cursor guardado. Login y
+challenge siguen requiriendo acción manual. Si un perfil no termina de
+prepararse, la misma recuperación conserva el intento actual y vuelve a preparar el perfil;
 **Reset current** pide confirmación, libera únicamente reservas browser-side
 que el backend todavía puede liberar y reinicia ese canal desde cero. Conserva
 el canal activo y los siguientes canales en la cola. No borra vídeos,

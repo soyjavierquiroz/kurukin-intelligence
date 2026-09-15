@@ -117,6 +117,10 @@ for(const [body,type,code] of [[{statusCode:123,itemList:[],cursor:'0',hasMore:f
   ['', 'application/json','DIRECT_CHALLENGE'],['broken','application/json','DIRECT_RESPONSE_INVALID']]) test(`response error ${code}: ${type}/${typeof body}`,async()=>{
   const c=collector([response(body,200,type)]);await assert.rejects(c.instance.scan({target:50}),{code});assert.equal(c.requests.length,1);
 });
+test('TikTok status text is reduced to a safe login or challenge category before it crosses worlds',async()=>{
+  await assert.rejects(collector([response({statusCode:7,status_msg:'login required'},200,'application/json')]).instance.scan({target:50}),{code:'DIRECT_LOGIN_REQUIRED'});
+  await assert.rejects(collector([response({statusCode:7,statusMessage:'security challenge'},200,'application/json')]).instance.scan({target:50}),{code:'DIRECT_CHALLENGE'});
+});
 test('missing target',async()=>{
   const c=collector([]);delete c.e.SIGI_STATE.UserModule;
   await assert.rejects(c.instance.scan({target:50}),{code:'DIRECT_TARGET_MISSING'});assert.equal(c.requests.length,0);

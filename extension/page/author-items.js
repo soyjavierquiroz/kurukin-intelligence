@@ -47,7 +47,16 @@
         debug.cursorPresent = data.cursor !== undefined && data.cursor !== null && data.cursor !== '';
         debug.hasMore = data.hasMore === true || data.hasMore === 1;
         if (data.type === 'verify' || data.type === 'captcha' || data.type === 'challenge') throw S.fail('DIRECT_CHALLENGE');
-        if (data.statusCode !== 0) throw S.fail('DIRECT_TIKTOK_STATUS');
+        if (data.statusCode !== 0) {
+          // TikTok occasionally carries a safe, human-facing category in the
+          // JSON envelope.  Keep its text local: only the allowlisted class
+          // crosses worlds, so login/challenge remains actionable while an
+          // otherwise opaque status is eligible for same-run recovery.
+          const statusText=[data.status_msg,data.statusMessage,data.message].filter(value=>typeof value==='string').join(' ').toLowerCase();
+          if(/captcha|challenge|verify|security/.test(statusText)) throw S.fail('DIRECT_CHALLENGE');
+          if(/login|log in|not.?logged|auth/.test(statusText)) throw S.fail('DIRECT_LOGIN_REQUIRED');
+          throw S.fail('DIRECT_TIKTOK_STATUS');
+        }
         if (!Array.isArray(data.itemList) || ![true,false,0,1].includes(data.hasMore) ||
             (typeof data.cursor !== 'string' && !Number.isSafeInteger(data.cursor))) throw S.fail('DIRECT_RESPONSE_INVALID');
         return data;
