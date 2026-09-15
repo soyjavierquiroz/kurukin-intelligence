@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   api:
-    image: kurukin-tiktok-api:auto-curator-0811-3aa039f
+    image: kurukin-tiktok-api:distributed-whisper-51e7350
     networks:
       - general_network
       - traefik_public
@@ -15,6 +15,12 @@ services:
       - source: kurukin_tiktok_openai_api_key_v1
         target: kurukin_tiktok_openai_api_key
         mode: 0400
+      - source: kurukin_tiktok_minio_access_key_v1
+        target: kurukin_tiktok_minio_access_key
+        mode: 0400
+      - source: kurukin_tiktok_minio_secret_key_v1
+        target: kurukin_tiktok_minio_secret_key
+        mode: 0400
     environment:
       DATABASE_URL_FILE: /run/secrets/kurukin_tiktok_database_url
       ACQUISITION_BATCH_SIZE: '10'
@@ -23,6 +29,11 @@ services:
       AUDIO_QUEUE_MAX_JOBS: '2000'
       FAILED_AUDIO_RETENTION_HOURS: '24'
       RABBITMQ_URL_FILE: /run/secrets/kurukin_tiktok_rabbitmq_url
+      AUDIO_STORAGE_BACKEND: minio
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: kurukin-transcription-audio
+      MINIO_ACCESS_KEY_FILE: /run/secrets/kurukin_tiktok_minio_access_key
+      MINIO_SECRET_KEY_FILE: /run/secrets/kurukin_tiktok_minio_secret_key
       MIN_TRANSCRIBE_DURATION_SECONDS: '8'
       AUTO_TRANSCRIBE_MAX_DURATION_SECONDS: '180'
       HARD_TRANSCRIBE_MAX_DURATION_SECONDS: '300'
@@ -68,7 +79,7 @@ services:
         reservations:
           memory: 256M
   whisper-worker:
-    image: kurukin-tiktok-api:auto-curator-0811-3aa039f
+    image: kurukin-tiktok-api:distributed-whisper-51e7350
     command: [python, -m, app.workers.whisper]
     networks: [general_network]
     secrets:
@@ -78,9 +89,21 @@ services:
       - source: kurukin_tiktok_rabbitmq_url_v1
         target: kurukin_tiktok_rabbitmq_url
         mode: 0400
+      - source: kurukin_tiktok_minio_access_key_v1
+        target: kurukin_tiktok_minio_access_key
+        mode: 0400
+      - source: kurukin_tiktok_minio_secret_key_v1
+        target: kurukin_tiktok_minio_secret_key
+        mode: 0400
     environment:
       DATABASE_URL_FILE: /run/secrets/kurukin_tiktok_database_url
       RABBITMQ_URL_FILE: /run/secrets/kurukin_tiktok_rabbitmq_url
+      AUDIO_STORAGE_BACKEND: minio
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: kurukin-transcription-audio
+      MINIO_ACCESS_KEY_FILE: /run/secrets/kurukin_tiktok_minio_access_key
+      MINIO_SECRET_KEY_FILE: /run/secrets/kurukin_tiktok_minio_secret_key
+      AUDIO_SCRATCH_DIR: /tmp/kurukin-audio
       WHISPER_MODEL: small
       WHISPER_DEVICE: cpu
       WHISPER_COMPUTE_TYPE: int8
@@ -119,6 +142,10 @@ secrets:
   kurukin_tiktok_database_url_v1:
     external: true
   kurukin_tiktok_openai_api_key_v1:
+    external: true
+  kurukin_tiktok_minio_access_key_v1:
+    external: true
+  kurukin_tiktok_minio_secret_key_v1:
     external: true
 volumes:
   kurukin_tiktok_whisper_cache:
