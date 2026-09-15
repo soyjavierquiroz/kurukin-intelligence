@@ -1,6 +1,6 @@
 # Kurukin Intelligence
 
-Current extension release: **Kurukin Intelligence 0.8.12 — non-blocking discovery AUTO CURATOR**. Normal audio
+Current extension release: **Kurukin Intelligence 0.8.13 — final drain recovery AUTO CURATOR**. Normal audio
 acquisition is browser MP4→WAV followed by server HTTP 202; local Silero/YAMNet
 remain explicit Audio Lab diagnostics only. See [extension/README.md](extension/README.md).
 

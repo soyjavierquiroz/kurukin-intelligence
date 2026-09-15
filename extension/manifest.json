@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kurukin Intelligence",
-  "version": "0.8.12",
+  "version": "0.8.13",
   "minimum_chrome_version": "111",
   "description": "Analiza publicaciones del perfil TikTok visitado desde un panel lateral local.",
   "action": {

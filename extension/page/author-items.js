@@ -140,7 +140,30 @@
         throw S.fail(S.safeError(error));
       }
     }
-    return Object.freeze({buildAuthorItemsRequest, scan});
+    async function reacquire({ids, signal, onItem = () => {}, maxPages = 8}) {
+      const wanted=new Set(Array.isArray(ids)?ids.filter(id=>/^\d{5,30}$/.test(id)).slice(0,10):[]);
+      if(!wanted.size||!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>8) throw S.fail('DIRECT_INTERNAL');
+      const username=context.targetUsername();
+      if(!username) throw S.fail('DIRECT_TARGET_MISSING');
+      if(!context.isLoggedIn()) throw S.fail('DIRECT_LOGIN_REQUIRED');
+      const app=await context.getAppContext(signal);
+      if(context.targetUsername()!==username||!context.isLoggedIn(app)) throw S.fail('DIRECT_LOGIN_REQUIRED');
+      const profile=context.getTargetProfileData(username);
+      if(!profile?.secUid) throw S.fail('DIRECT_TARGET_MISSING');
+      let cursor='0', pages=0;
+      while(wanted.size&&pages<maxPages){
+        if(signal?.aborted) throw S.fail('DIRECT_CANCELLED');
+        if(context.targetUsername()!==username) throw S.fail('DIRECT_TARGET_MISSING');
+        const delay=Math.max(0,nextRequestAt-Date.now());if(delay) await sleep(delay,signal);
+        const debug=S.debug({page:pages+1}),data=await request(buildAuthorItemsRequest({secUid:profile.secUid,cursor,count:COUNT},app),signal,debug);
+        pages++;
+        for(const item of data.itemList){const video=N.normalize(item);if(video&&video.author.toLowerCase()===username.toLowerCase()&&wanted.delete(video.id))onItem(item,video);}
+        if(!debug.hasMore) break;
+        const next=String(data.cursor);if(!/^[1-9]\d{0,39}$/.test(next)) break;cursor=next;
+      }
+      return {found:[...ids].filter(id=>!wanted.has(id)),missing:[...wanted],pages};
+    }
+    return Object.freeze({buildAuthorItemsRequest, scan, reacquire});
   }
   root.KurukinAuthorItems = Object.freeze({createCollector, wait, ENDPOINT, COUNT, DELAY_MS, MAX_RETRIES});
   if (typeof module !== 'undefined') module.exports = root.KurukinAuthorItems;

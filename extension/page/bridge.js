@@ -15,6 +15,11 @@
       if(active){send('SCAN_ERROR',scanId,{code:'DIRECT_BUSY'});return;}clear();const scan={id:scanId,controller:new AbortController()};active=scan;
       try{const checkpoint=p=>new Promise((resolve,reject)=>{checkpointAcks.set(p.checkpointNumber,{resolve,reject});send('SCAN_CHECKPOINT',scanId,p);});const result=await collector.scan({target:payload.target,resume:payload.resume||null,signal:scan.controller.signal,onProgress:p=>send('SCAN_PROGRESS',scanId,p),onCheckpoint:checkpoint,onItem:(item,video)=>media.set(video.id,{videoId:video.id,duration:video.duration,candidates:A.candidates(item)})});if(!result.cancelled)completed={scanId,username:context.targetUsername()};else media.clear();send('SCAN_COMPLETE',scanId,result);}catch(error){clear();send('SCAN_ERROR',scanId,{code:S.safeError(error)});}finally{if(active===scan)active=null;}return;
     }
+    if(type==='KURUKIN_MEDIA_REACQUIRE'){
+      if(active||job||!context.targetUsername()){send('MEDIA_REACQUIRED',scanId,{found:[],missing:payload.videoIds,pages:0});return;}
+      const task={controller:new AbortController()};job=task;
+      try{const result=await collector.reacquire({ids:payload.videoIds,signal:task.controller.signal,onItem:(item,video)=>media.set(video.id,{videoId:video.id,duration:video.duration,candidates:A.candidates(item)})});if(job===task){completed={scanId,username:context.targetUsername()};send('MEDIA_REACQUIRED',scanId,result);}}catch(error){if(job===task)send('MEDIA_REACQUIRE_ERROR',scanId,{code:S.safeError(error)});}finally{if(job===task)job=null;}return;
+    }
     if(type!=='KURUKIN_AUDIO_REQUEST'||job||(active&&active.id!==scanId)||(!active&&(!completed||completed.scanId!==scanId||completed.username!==context.targetUsername())))return;
     const task={controller:new AbortController()};job=task;const emit=(name,data)=>{if(job===task)send(name,scanId,{videoId:payload.videoId,...data});};
     try{const options={media,signal:task.controller.signal,emit,extensionBase:payload.extensionBase};const result=payload.experimental?await A.extractExperimental(payload.videoId,options):await A.extract(payload.videoId,options);if(job===task)emit('AUDIO_READY',{...result.meta,buffer:result.buffer});}catch{/* safe error emitted by extractor */}finally{if(job===task)job=null;}

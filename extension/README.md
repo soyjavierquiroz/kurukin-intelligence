@@ -1,4 +1,4 @@
-# Kurukin Intelligence 0.8.12
+# Kurukin Intelligence 0.8.13
 
 La ruta normal es deliberadamente estrecha:
 
@@ -14,7 +14,9 @@ Discovery continúa hasta `hasMore=false` aunque la adquisición esté ocupada:
 la capacidad temporal activa un cooldown sin pausar scroll ni paginación. Al
 finalizar discovery, el navegador conserva el contexto del canal y hace final
 drain con backoff hasta que todos los candidatos del scan actual estén
-aceptados, resueltos globalmente o liberados. No persiste cookies, tokens, URLs
+aceptados, resueltos globalmente o liberados. Tras un reinicio, reconcilia las
+reservas activas, restaura el perfil activo y reacquire únicamente IDs pendientes
+desde el navegador. No persiste cookies, tokens, URLs
 de media ni audio. Un `202` significa que el backend aceptó el trabajo: no
 espera polling de YAMNet, Whisper, transcript ni estado de job.
 
