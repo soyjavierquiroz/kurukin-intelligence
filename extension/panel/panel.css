@@ -47,6 +47,10 @@ dialog h2 { font-size: 18px; margin: 0 0 10px; }
 dialog p { color: #c4cce0; margin: 0 0 18px; }
 .dialog-actions { display: flex; gap: 8px; justify-content: end; }
 .dialog-actions .primary { width: auto; }
+.reset-confirmation { align-items: center; background: rgba(0,0,0,.62); display: flex; inset: 0; justify-content: center; padding: 18px; position: fixed; z-index: 10; }
+.reset-confirmation-card { background: #171c28; border: 1px solid #625b9e; border-radius: 12px; max-width: 330px; padding: 20px; }
+.reset-confirmation-card h2 { font-size: 18px; margin: 0 0 10px; }
+.reset-confirmation-card p { color: #c4cce0; margin: 0 0 18px; }
 #auto-list { border-top: 1px solid #343d53; font-size: 12px; margin-top: 14px; }
 .auto-row { align-items: baseline; border-bottom: 1px solid #222939; display: grid; gap: 7px; grid-template-columns: auto 1fr auto; padding: 8px 0; }.auto-row.active { color: #d6d1ff; }.auto-row b { color: #77dfb4; }.auto-row span { color: #9aa6bc; overflow-wrap: anywhere; text-align: right; }
 .auto-timeline { border-bottom: 1px solid #343d53; border-top: 1px solid #343d53; color: #9aa6bc; display: grid; gap: 4px; list-style: none; margin: 14px 0; padding: 10px 0; }

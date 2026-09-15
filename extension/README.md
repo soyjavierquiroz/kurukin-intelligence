@@ -1,4 +1,4 @@
-# Kurukin Intelligence 0.8.15
+# Kurukin Intelligence 0.8.16
 
 La ruta normal es deliberadamente estrecha:
 
