@@ -10,6 +10,7 @@
     if(event.source!==window||event.origin!==origin||!P.valid(event.data,'content'))return;const {type,scanId,payload}=event.data;
     if(type==='KURUKIN_CONTEXT_GET'){send('CONTEXT',scanId,{username:context.targetUsername(),loggedIn:context.isLoggedIn()});return;}
     if(type==='KURUKIN_SCAN_CANCEL'){if(active?.id===scanId){active.controller.abort();for(const settle of checkpointAcks.values())settle.reject(S.fail('DIRECT_CANCELLED'));checkpointAcks.clear();}return;}
+    if(type==='KURUKIN_SCAN_RESET'){clear();return;}
     if(type==='KURUKIN_SCAN_CHECKPOINT_ACK'){const settle=checkpointAcks.get(payload.checkpointNumber);if(settle){checkpointAcks.delete(payload.checkpointNumber);payload.accepted?settle.resolve():settle.reject(S.fail('DIRECT_NETWORK'));}return;}
     if(type==='KURUKIN_SCAN_START'){
       if(active){send('SCAN_ERROR',scanId,{code:'DIRECT_BUSY'});return;}clear();const scan={id:scanId,controller:new AbortController()};active=scan;

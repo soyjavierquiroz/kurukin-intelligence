@@ -1,4 +1,4 @@
-# Kurukin Intelligence 0.8.14
+# Kurukin Intelligence 0.8.15
 
 La ruta normal es deliberadamente estrecha:
 
@@ -19,6 +19,14 @@ reservas activas, restaura el perfil activo y reacquire únicamente IDs pendient
 desde el navegador. No persiste cookies, tokens, URLs
 de media ni audio. Un `202` significa que el backend aceptó el trabajo: no
 espera polling de YAMNet, Whisper, transcript ni estado de job.
+
+Si un perfil no termina de prepararse, Product Mode muestra una recuperación
+simple: **Retry** conserva el intento actual y vuelve a preparar el perfil;
+**Reset current** pide confirmación, libera únicamente reservas browser-side
+que el backend todavía puede liberar y reinicia ese canal desde cero. Conserva
+el canal activo y los siguientes canales en la cola. No borra vídeos,
+transcripts, snapshots ni resultados globales; los trabajos ya aceptados
+continúan con normalidad.
 
 Las referencias de media permanecen sólo en el `Map` del MAIN world del canal
 actual durante discovery y final drain. Si TikTok invalida una referencia tras
