@@ -16,6 +16,9 @@ def settings(monkeypatch, tmp_path):
     # production-like values explicitly.
     monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '0')
     monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '0')
+    # Legacy lifecycle tests opt out of adaptive ranking unless they explicitly
+    # exercise the production policy.
+    monkeypatch.setenv('INCREMENTAL_MEDIAN_MULTIPLIER', '0.01')
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

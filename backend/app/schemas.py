@@ -121,8 +121,9 @@ class AnalysisCheckpointInput(AnalysisInput):
 
 
 class AcquisitionBatchInput(StrictModel):
-    """Whether this browser request is the final, full-corpus drain."""
+    """Safe scan state needed by the authoritative acquisition selector."""
     discovery_complete: bool = False
+    has_more: bool = False
 
 
 class BrowserAcquisitionFailure(StrictModel):

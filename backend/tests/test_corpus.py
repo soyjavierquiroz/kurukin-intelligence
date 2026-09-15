@@ -8,7 +8,9 @@ from fastapi import HTTPException
 from sqlalchemy import select, func
 from app.models import Analysis, AnalysisAcquisition, Channel, TranscriptionJob, Video, VideoSnapshot, Transcript, now
 from app.schemas import AnalysisInput, AnalysisCheckpointInput, SENSITIVE
-from app.services import acquisition_batch, create_analysis, analysis_response, eligibility, coverage, claim_video
+from app.services import (acquisition_batch, create_analysis, analysis_response, eligibility, coverage,
+                          claim_video, new_enrichment_budget)
+from app.jobs import release_reserved_acquisition
 from app.config import get_settings
 from app.main import process_audio
 from app.ranking import rank_videos
@@ -428,6 +430,120 @@ def test_incremental_views_and_final_drain_are_idempotent_and_skip_global_resolu
     drained = acquisition_batch(db, analysis.id, discovery_complete=True)
     assert drained['enrichment']['already_resolved_global'] == 2
     assert drained['enrichment_requests'] == []
+
+
+def test_adaptive_new_enrichment_budget_defaults_are_bounded():
+    assert new_enrichment_budget(730) == 100
+    assert new_enrichment_budget(200) == 30
+    assert new_enrichment_budget(100) == 20
+    assert new_enrichment_budget(50) == 20
+    assert new_enrichment_budget(12, eligible_missing_count=3) == 3
+
+
+def test_resolved_transcripts_remain_usable_and_cost_no_new_budget(db, monkeypatch):
+    monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '0')
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '0')
+    monkeypatch.setenv('ENRICHMENT_MIN_NEW', '1')
+    monkeypatch.setenv('ENRICHMENT_MAX_NEW', '1')
+    get_settings.cache_clear()
+    analysis = create_analysis(db, scoped_payload(['70000', '70001', '70002']), reserve=False)
+    resolved = db.scalar(select(Video).where(Video.tiktok_id == '70000'))
+    complete(db, resolved)
+    db.commit()
+
+    response = acquisition_batch(db, analysis.id, discovery_complete=True)
+
+    assert response['enrichment']['globally_resolved_eligible'] == 1
+    assert response['enrichment']['new_enrichment_budget'] == 1
+    assert response['enrichment']['new_enrichment_used'] == 1
+    assert response['enrichment']['new_enrichment_remaining'] == 0
+    assert len(response['enrichment_requests']) == 1
+    resolved_item = next(item for item in response['top_videos'] if item['tiktok_id'] == '70000')
+    assert resolved_item['transcript'] == 'Valid global transcript' and not resolved_item['needs_audio']
+
+
+def test_committed_work_counts_once_and_a_pre_audio_release_frees_its_slot(db, monkeypatch):
+    monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '0')
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '0')
+    monkeypatch.setenv('ENRICHMENT_MIN_NEW', '1')
+    monkeypatch.setenv('ENRICHMENT_MAX_NEW', '1')
+    get_settings.cache_clear()
+    analysis = create_analysis(db, scoped_payload(['70100']), reserve=False)
+    reserved = acquisition_batch(db, analysis.id, discovery_complete=True)
+    assert reserved['enrichment']['new_enrichment_used'] == 1
+    video = db.scalar(select(Video).where(Video.tiktok_id == '70100'))
+    job = db.scalar(select(TranscriptionJob).where(TranscriptionJob.video_id == video.id))
+    job.status = 'queued'
+    db.commit()
+    assert analysis_response(db, analysis)['enrichment']['new_enrichment_used'] == 1
+    assert release_reserved_acquisition(analysis.id, '70100', 'FETCH_MP4_FAILED', db) == {'released': False}
+
+    job.status = 'reserved'
+    db.commit()
+    assert release_reserved_acquisition(analysis.id, '70100', 'FETCH_MP4_FAILED', db) == {'released': True}
+    released = analysis_response(db, analysis)
+    assert released['enrichment']['new_enrichment_used'] == 0
+    reclaimed = acquisition_batch(db, analysis.id, discovery_complete=True)
+    assert reclaimed['enrichment']['new_enrichment_used'] == 1
+    assert [item['tiktok_id'] for item in reclaimed['enrichment_requests']] == ['70100']
+
+
+def test_final_ranking_and_budget_exclusion_are_authoritative(db, monkeypatch):
+    monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '0')
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '0')
+    monkeypatch.setenv('ENRICHMENT_MIN_NEW', '1')
+    monkeypatch.setenv('ENRICHMENT_MAX_NEW', '1')
+    get_settings.cache_clear()
+    data = scoped_payload(['70200', '70201', '70202'], views=[100, 100, 50]).model_dump()
+    data['videos'][0]['likes'] = 10
+    data['videos'][1]['likes'] = 30  # Same outlier and views as 70200; engagement wins.
+    analysis = create_analysis(db, AnalysisInput.model_validate(data), reserve=False)
+
+    response = acquisition_batch(db, analysis.id, discovery_complete=True)
+
+    assert response['enrichment']['final_candidate_count'] == 3
+    assert response['enrichment']['excluded_by_budget'] == 2
+    assert [item['tiktok_id'] for item in response['enrichment_requests']] == ['70201']
+    assert db.scalar(select(func.count()).select_from(AnalysisAcquisition).where(
+        AnalysisAcquisition.analysis_id == analysis.id)) == 1
+
+
+def test_partial_median_gate_and_small_channel_final_selection(db, monkeypatch):
+    monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '10000')
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '2.0')
+    monkeypatch.setenv('INCREMENTAL_MEDIAN_MULTIPLIER', '3.0')
+    get_settings.cache_clear()
+    analysis = create_analysis(db, scoped_payload(['70300', '70301', '70302'], views=[1000, 1000, 12000]),
+                               reserve=False)
+
+    partial = acquisition_batch(db, analysis.id, discovery_complete=False, has_more=True)
+    assert partial['enrichment']['incremental_effective_min_views'] == 10000.0
+    assert partial['enrichment_requests'] == []
+    final = acquisition_batch(db, analysis.id, discovery_complete=True, has_more=False)
+    assert [item['tiktok_id'] for item in final['enrichment_requests']] == ['70302']
+
+
+def test_incremental_commitment_reduces_the_final_new_work_allowance(db, monkeypatch):
+    monkeypatch.setenv('ENRICHMENT_MIN_VIEWS', '10000')
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '2.0')
+    monkeypatch.setenv('INCREMENTAL_MEDIAN_MULTIPLIER', '3.0')
+    monkeypatch.setenv('ENRICHMENT_MIN_NEW', '2')
+    monkeypatch.setenv('ENRICHMENT_MAX_NEW', '2')
+    get_settings.cache_clear()
+    ids = [str(70400 + index) for index in range(100)]
+    views = [1000] * 98 + [9000, 12000]
+    analysis = create_analysis(db, scoped_payload(ids, views=views), reserve=False)
+
+    incremental = acquisition_batch(db, analysis.id, discovery_complete=False, has_more=True)
+    assert [item['tiktok_id'] for item in incremental['enrichment_requests']] == ['70499']
+    assert incremental['enrichment']['new_enrichment_used'] == 1
+    assert incremental['enrichment']['new_enrichment_remaining'] == 1
+
+    final = acquisition_batch(db, analysis.id, discovery_complete=True)
+    assert final['enrichment']['new_enrichment_budget'] == 2
+    assert final['enrichment']['new_enrichment_used'] == 2
+    assert final['enrichment']['new_enrichment_remaining'] == 0
+    assert {item['tiktok_id'] for item in final['enrichment_requests']} == {'70498', '70499'}
 
 
 def test_checkpoint_endpoint_replays_the_same_analysis_id(db):

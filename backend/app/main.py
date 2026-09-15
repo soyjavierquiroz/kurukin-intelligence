@@ -134,7 +134,8 @@ def ingest_checkpoint(payload: AnalysisCheckpointInput, db: Session = Depends(ge
     # Metadata checkpoints neither reserve audio nor consume inbox capacity.
     # This keeps discovery durable even while the audio queue is cooling down.
     analysis = create_analysis(db, payload, analysis_id=payload.analysis_id, reserve=False)
-    result = analysis_response(db, analysis, discovery_complete=not payload.has_more)
+    result = analysis_response(db, analysis, discovery_complete=not payload.has_more,
+                               has_more=payload.has_more)
     db.commit()
     return result
 
@@ -157,7 +158,8 @@ from .jobs import receive_audio as process_audio
 def next_acquisition_batch(analysis_id: UUID, payload: AcquisitionBatchInput | None = None,
                            db: Session = Depends(get_db)):
     from .services import acquisition_batch
-    return acquisition_batch(db, analysis_id, payload.discovery_complete if payload else False)
+    return acquisition_batch(db, analysis_id, payload.discovery_complete if payload else False,
+                             payload.has_more if payload else False)
 
 
 @app.post('/api/v1/analyses/{analysis_id}/videos/{tiktok_id}/audio', status_code=202)

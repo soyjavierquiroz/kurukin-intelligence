@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION=0.8.13
+VERSION=0.8.14
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 

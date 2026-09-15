@@ -6,6 +6,16 @@ from pydantic import AliasChoices, Field, SecretStr, model_validator, field_vali
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
+# Adaptive enrichment policy.  These names are deliberately shared by the
+# selection helpers below rather than being duplicated through request paths.
+MIN_VIEWS = 10_000
+MIN_OUTLIER = 2.0
+INCREMENTAL_MEDIAN_MULTIPLIER = 3.0
+ENRICHMENT_TARGET_RATIO = 0.15
+ENRICHMENT_MIN_NEW = 20
+ENRICHMENT_MAX_NEW = 100
+MIN_DISCOVERED_FOR_ADAPTIVE_INCREMENTAL = 100
+
 class DatabaseConfigurationError(RuntimeError):
     pass
 
@@ -18,9 +28,17 @@ class Settings(BaseSettings):
     auto_transcribe_max_duration_seconds: float = Field(180, gt=0, allow_inf_nan=False)
     hard_transcribe_max_duration_seconds: float = Field(300, gt=0, allow_inf_nan=False)
     high_value_outlier_threshold: float = Field(2.0, ge=0, allow_inf_nan=False)
-    enrichment_min_views: int = Field(10000, ge=0, validation_alias=AliasChoices('ENRICHMENT_MIN_VIEWS', 'MIN_VIEWS', 'enrichment_min_views'))
-    enrichment_min_outlier_score: float = Field(2.0, ge=0, allow_inf_nan=False,
-                                                validation_alias=AliasChoices('ENRICHMENT_MIN_OUTLIER_SCORE', 'MIN_OUTLIER_SCORE', 'enrichment_min_outlier_score'))
+    enrichment_min_views: int = Field(MIN_VIEWS, ge=0, validation_alias=AliasChoices('ENRICHMENT_MIN_VIEWS', 'MIN_VIEWS', 'enrichment_min_views'))
+    enrichment_min_outlier_score: float = Field(MIN_OUTLIER, ge=0, allow_inf_nan=False,
+                                                validation_alias=AliasChoices('ENRICHMENT_MIN_OUTLIER_SCORE', 'MIN_OUTLIER', 'MIN_OUTLIER_SCORE', 'enrichment_min_outlier_score'))
+    incremental_median_multiplier: float = Field(INCREMENTAL_MEDIAN_MULTIPLIER, gt=0, allow_inf_nan=False,
+                                                   validation_alias=AliasChoices('INCREMENTAL_MEDIAN_MULTIPLIER', 'incremental_median_multiplier'))
+    enrichment_target_ratio: float = Field(ENRICHMENT_TARGET_RATIO, gt=0, le=1, allow_inf_nan=False,
+                                            validation_alias=AliasChoices('ENRICHMENT_TARGET_RATIO', 'enrichment_target_ratio'))
+    enrichment_min_new: int = Field(ENRICHMENT_MIN_NEW, ge=0,
+                                    validation_alias=AliasChoices('ENRICHMENT_MIN_NEW', 'enrichment_min_new'))
+    enrichment_max_new: int = Field(ENRICHMENT_MAX_NEW, ge=1,
+                                    validation_alias=AliasChoices('ENRICHMENT_MAX_NEW', 'enrichment_max_new'))
     enrichment_lease_seconds: int = Field(1800, ge=60, le=86400)
 
     # Provider-neutral Semantic Viral DNA routing configuration.  No provider
@@ -69,6 +87,12 @@ class Settings(BaseSettings):
     @property
     def initial_enrichment_budget(self):
         return self.acquisition_batch_size
+
+    @model_validator(mode='after')
+    def enrichment_budget_limits(self):
+        if self.enrichment_min_new > self.enrichment_max_new:
+            raise ValueError('ENRICHMENT_MIN_NEW must not exceed ENRICHMENT_MAX_NEW')
+        return self
 
     def resolve_rabbitmq_url(self):
         try:
