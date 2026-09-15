@@ -452,6 +452,31 @@ def test_checkpoint_endpoint_replays_the_same_analysis_id(db):
         app.dependency_overrides.clear()
 
 
+def test_checkpoint_persists_metadata_while_audio_capacity_is_unavailable(db, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.db import get_db
+    import app.jobs as jobs
+    checkpoint = scoped_payload(['50001']).model_dump()
+    checkpoint.update(analysis_id=str(uuid4()), scan_id=str(uuid4()), checkpoint_number=1,
+                      checkpoint_count=1, discovered_count=1, target='full', has_more=True)
+    def session():
+        yield db
+    def unavailable(*_args, **_kwargs):
+        raise HTTPException(503, {'code': 'audio_queue_capacity', 'retryable': True})
+    app.dependency_overrides[get_db] = session
+    monkeypatch.setattr(jobs, 'capacity', unavailable)
+    try:
+        response = TestClient(app).post('/api/v1/analyses/checkpoints', json=checkpoint)
+        assert response.status_code == 200
+        assert response.json()['analysis_id'] == checkpoint['analysis_id']
+        with pytest.raises(HTTPException) as error:
+            acquisition_batch(db, checkpoint['analysis_id'])
+        assert error.value.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_global_gap_selection_does_not_reserve_pending_videos_from_prior_scans(db, monkeypatch):
     monkeypatch.setenv('ACQUISITION_BATCH_SIZE', '10')
     first = create_analysis(db, payload(tuple(float(20 + i) for i in range(15)),

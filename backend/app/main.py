@@ -131,17 +131,12 @@ def ingest_checkpoint(payload: AnalysisCheckpointInput, db: Session = Depends(ge
     the existing (analysis_id, video_id) uniqueness boundary and never creates
     another scan or analysis.
     """
-    from .jobs import inbox_lock, capacity
-    with inbox_lock() as root:
-        capacity(db, root)
-        # Checkpoints deliberately do not reserve work themselves.  The
-        # extension follows this committed persistence with one call to the
-        # normal acquisition-batches endpoint and waits only for HTTP 202/
-        # released attempts before it resumes discovery.
-        analysis = create_analysis(db, payload, analysis_id=payload.analysis_id, reserve=False)
-        result = analysis_response(db, analysis, discovery_complete=not payload.has_more)
-        db.commit()
-        return result
+    # Metadata checkpoints neither reserve audio nor consume inbox capacity.
+    # This keeps discovery durable even while the audio queue is cooling down.
+    analysis = create_analysis(db, payload, analysis_id=payload.analysis_id, reserve=False)
+    result = analysis_response(db, analysis, discovery_complete=not payload.has_more)
+    db.commit()
+    return result
 
 
 @app.get('/api/v1/analyses/{analysis_id}')

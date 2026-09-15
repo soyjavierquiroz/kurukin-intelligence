@@ -1,4 +1,4 @@
-# Kurukin Intelligence 0.8.11
+# Kurukin Intelligence 0.8.12
 
 La ruta normal es deliberadamente estrecha:
 
@@ -9,13 +9,20 @@ TikTok MP4 (RAM, MAIN) -> decode -> PCM mono 16 kHz -> WAV PCM16
 ```
 
 Auto Curator descubre en checkpoints internos de 50 publicaciones. Cada
-checkpoint seguro se confirma contra el mismo `analysis_id` y scan lógico; a
-continuación reserva un único lote normal, lo procesa secuencialmente en el
-navegador y reanuda discovery cuando cada intento ha recibido HTTP 202 o fue
-liberado. La reanudación conserva el cursor seguro, conteo confirmado e
-identificadores del análisis; no persiste cookies, tokens, URLs de media ni
-audio. Un `202` significa que el backend aceptó el trabajo: no espera polling
-de YAMNet, Whisper, transcript ni estado de job.
+checkpoint seguro se confirma contra el mismo `analysis_id` y scan lógico.
+Discovery continúa hasta `hasMore=false` aunque la adquisición esté ocupada:
+la capacidad temporal activa un cooldown sin pausar scroll ni paginación. Al
+finalizar discovery, el navegador conserva el contexto del canal y hace final
+drain con backoff hasta que todos los candidatos del scan actual estén
+aceptados, resueltos globalmente o liberados. No persiste cookies, tokens, URLs
+de media ni audio. Un `202` significa que el backend aceptó el trabajo: no
+espera polling de YAMNet, Whisper, transcript ni estado de job.
+
+Las referencias de media permanecen sólo en el `Map` del MAIN world del canal
+actual durante discovery y final drain. Si TikTok invalida una referencia tras
+una espera prolongada, la extensión vuelve a solicitarla únicamente desde ese
+contexto browser-side y libera la reserva según el contrato; no hay fetch
+server-side ni fallback externo.
 
 ## Backend endpoint
 

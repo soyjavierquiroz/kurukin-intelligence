@@ -45,7 +45,7 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
   return true;
 });
 
-chrome.alarms?.onAlarm.addListener(alarm=>{if(AUTO_CURATOR_V1_ENABLED&&alarm.name==='kurukin-auto-curator-retry')void curator().tick();});
+chrome.alarms?.onAlarm.addListener(alarm=>{if(AUTO_CURATOR_V1_ENABLED&&alarm.name==='kurukin-auto-curator-retry')void curator().tick().then(state=>{const channel=state?.channels?.find(item=>item.id===state.active_channel_id);if(channel&&Number.isInteger(state.tab_id))return chrome.tabs.sendMessage(state.tab_id,{type:'KURUKIN_AUTO_CAPACITY_RETRY',channelId:channel.id}).catch(()=>{});});});
 
 chrome.action.onClicked.addListener(async tab=>{
   if(!tab.id)return;
