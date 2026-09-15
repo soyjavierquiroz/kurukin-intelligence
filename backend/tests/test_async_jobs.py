@@ -476,10 +476,10 @@ def test_lost_singleton_connection_stops_delivery_without_ack():
     channel.basic_ack.assert_not_called(); channel.basic_nack.assert_not_called()
 
 
-def test_credentials_reject_other_apps():
+def test_credentials_allow_private_remote_endpoints_but_reject_malformed_urls():
+    assert Settings(rabbitmq_url='amqps://kurukin_tiktok:private@rabbit.private:5671/%2Fkurukin-tiktok').resolve_rabbitmq_url()
     with pytest.raises(RuntimeError, match='configuration'):
-        Settings(rabbitmq_url='amqp://n8n:private@rabbit_mq:5672/default').resolve_rabbitmq_url()
-    assert Settings(rabbitmq_url='amqp://kurukin_tiktok:test@rabbit_mq:5672/%2Fkurukin-tiktok').resolve_rabbitmq_url()
+        Settings(rabbitmq_url='http://kurukin_tiktok:private@rabbit.private/queue').resolve_rabbitmq_url()
 
 
 def test_one_lazy_model_instance(monkeypatch):

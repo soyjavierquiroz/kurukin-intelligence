@@ -77,7 +77,9 @@ Se acepta temporalmente INITIAL_ENRICHMENT_BUDGET y TOP_TRANSCRIPTS como alias d
 
 ## Inbox durable y backpressure
 
-Volumen Swarm local `kurukin_tiktok_audio_queue`, montado en **API y worker** en `/data/audio-queue`. Nombre generado exclusivamente por servidor: `<job_uuid>.wav`; nunca filename cliente. `.part` exclusivo 0600, escritura, flush, fsync, os.replace, fsync del directorio, commit audio_received. Un fallo durante escritura elimina el .part creado. Un crash entre rename y commit deja un WAV completo que la reconciliación valida y adopta para la reserva correspondiente.
+`AUDIO_STORAGE_BACKEND=local` conserva el inbox Swarm `kurukin_tiktok_audio_queue`: `<job_uuid>.part` exclusivo 0600, escritura, flush, fsync, os.replace y commit `audio_received`. Es el formato legacy `/data/audio-queue/<job_uuid>.wav` y sigue siendo reconocible durante la transición.
+
+`AUDIO_STORAGE_BACKEND=minio` escribe para nuevos jobs un único objeto S3 compatible `transcription/v1/<job_uuid>.wav`. La API valida el WAV antes de PUT, confirma el objeto con HEAD, guarda `minio://<bucket>/transcription/v1/<job_uuid>.wav` en `audio_path`, confirma `audio_received` y sólo entonces publica Rabbit. No existe una transacción distribuida: un crash entre PUT y commit deja un huérfano que la reconciliación puede borrar después de dos horas. MinIO usa endpoint configurable; el default Swarm es `http://minio:9000` y las credenciales son de aplicación restringida, nunca root.
 
 Se valida RIFF/WAVE PCM, chunks, formato, bytes y duración tanto en API como al comenzar el worker, mediante las mismas funciones. MAX_AUDIO_MB=10; duración automática 8–180 s, hard limit 300 s configurable con min ≤ auto ≤ hard. Se mantiene el validador PCM del milestone anterior: la extensión entrega PCM16 mono 16 kHz; también acepta los formatos PCM previamente admitidos. No hay segunda implementación de Whisper.
 
@@ -93,11 +95,11 @@ Un flock del inbox serializa admisión, escritura y limpieza entre procesos del 
 
 La adquisición de nuevos batches se pausa al alcanzar el cap de jobs. Las reservas ya contabilizadas pueden completar su upload sin aumentar el número de jobs; si la cuenta supera el cap se rechazan también esos uploads. Reservas vencidas son retiradas de la cuenta por reconciliación. Bytes en el cap o espacio libre en el mínimo rechazan entrada. El middleware limita cada body y admite como máximo dos POST simultáneos en su tramo de buffering/procesamiento, para acotar memoria de la API.
 
-El volumen local es durable frente a reinicio de contenedores, **no es un backup ni almacenamiento distribuido**. API y worker quedan fijados a HughesDocker2026. Reprogramarlos en otro nodo sin trasladar el volumen perdería acceso a los archivos. La propuesta no crea aún el volumen real ni modifica servicios.
+El volumen local es durable frente a reinicio de contenedores, **no es un backup ni almacenamiento distribuido**. MinIO elimina esa dependencia para nuevos jobs; cada worker sólo necesita un scratch privado local para descargar el objeto durante YAMNet/Whisper y lo elimina en `finally`.
 
 ## Publicación y recuperación
 
-Pika 1.3.2; queue clásica `transcription.v1`, durable, x-max-priority=100, mensajes delivery_mode=2, mandatory y publisher confirms. Constants: interactive=100, normal=50, background=10. No hay planes ni scheduler avanzado. RabbitMQ recibe únicamente JSON `{job_id, video_id}`; nunca WAV, transcript, URL de DB o credenciales.
+Pika 1.3.2; queue clásica `transcription.v1`, durable, x-max-priority=100, mensajes delivery_mode=2, mandatory y publisher confirms. Constants: interactive=100, normal=50, background=10. Legacy conserva JSON `{job_id, video_id}`; MinIO añade `audio_object_key`. Rabbit nunca recibe WAV, transcript, URL de DB ni credenciales.
 
 No existe transacción distribuida: primero archivo + commit audio_received; después publicación; por último queued_at + status=queued. Un fallo de publicación conserva el archivo y audio_received. Si RabbitMQ confirmó pero el proceso murió antes de actualizar DB, puede haber republicación duplicada, que es intencionalmente segura.
 
@@ -107,7 +109,7 @@ No se republican todos los queued periódicamente: RabbitMQ durable conserva men
 
 ## Worker, idempotencia y ACK
 
-`python -m app.workers.whisper`: un consumidor, prefetch_count=1, auto_ack=False, ThreadPoolExecutor(max_workers=1). Un advisory lock PostgreSQL de sesión impide dos procesos de worker activos; el servicio Whisper también impone concurrency=1. El hilo de Rabbit atiende heartbeats mientras la inferencia corre fuera de ese hilo. Un único proceso hijo persistente aloja el modelo lazy small/cpu/int8; num_workers=1 y dos threads CPU. El timeout de 300 s termina/recolecta ese hijo antes de permitir un nuevo intento. Después se crea un hijo nuevo, reutilizando cache.
+`python -m app.workers.whisper`: un consumidor, prefetch_count=1, auto_ack=False, ThreadPoolExecutor(max_workers=1). Cada entrega toma un advisory lock PostgreSQL derivado de `video_id` durante su inferencia: distintos vídeos pueden procesarse en paralelo por distintos containers, el mismo vídeo no. El servicio Whisper conserva concurrency=1 por proceso. El hilo de Rabbit atiende heartbeats mientras la inferencia corre fuera de ese hilo. Un único proceso hijo persistente aloja el modelo lazy small/cpu/int8; num_workers=1 y dos threads CPU. El timeout de 300 s termina/recolecta ese hijo antes de permitir un nuevo intento.
 
 Cada entrega comprueba primero el transcript global. Los intentos y processing se confirman antes de inferencia. No se mantienen locks de filas durante Whisper, para no bloquear adquisición. Al persistir se bloquean vídeo y job y se vuelve a comprobar transcript; el UNIQUE de transcripts.video_id sigue siendo la defensa final. Transcript y job completed se confirman juntos. Luego se borra WAV o se confirma last_error_code=cleanup_pending; **solo entonces ACK**.
 
@@ -117,7 +119,7 @@ Fallo/commit DB incierto: sin ACK; cerrar conexión y reconectar con backoff per
 
 ## Retención y límites de operación
 
-Completados: eliminación inmediata, y cleanup periódico reintenta fallos registrados. Failed: borrar audio tras 24 h. .part de más de dos horas y WAV sin job de más de dos horas se eliminan. WAV válidos reserved/queued/processing no se borran por antigüedad. No se siguen symlinks ni se recorren carpetas ajenas. La limpieza conserva la fila operacional y los timestamps.
+Completados: eliminación inmediata, y cleanup periódico reintenta fallos registrados. Failed: borrar audio tras 24 h. Para MinIO, `cleanup_pending`, failed retention y objetos huérfanos bajo `transcription/v1/` siguen la misma política; un objeto no se borra antes de que el estado terminal sea durable. Scratch local y `.part`/WAV legacy de más de dos horas se eliminan. WAV/objetos válidos reserved/queued/processing no se borran por antigüedad.
 
 Stack 0.2.0: misma imagen para API y worker; general_network; secretos externos exclusivos DB y RabbitMQ; cero published ports, cero Traefik. Cache `kurukin_tiktok_whisper_cache` montada únicamente en worker. Worker 2 CPU / 2 GiB, reserva 512 MiB, basado en medición real del milestone 1 (pico ~1.13 GiB, sin OOM). API propuesta 1 CPU / 512 MiB, reserva 256 MiB; ver informe de validación de imports/HTTP aislados. No equivale a una prueba de carga de producción.
 

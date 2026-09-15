@@ -13,6 +13,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from .audio import validate_wav
+from .audio_storage import AudioStorageError, get_audio_storage, local_audio_path
 from .config import get_settings
 from .models import Analysis, AnalysisAcquisition, Transcript, TranscriptionJob, Video, VideoSnapshot, now
 
@@ -38,9 +39,14 @@ def inbox_lock():
 
 def capacity(db, root, incoming=0, new_job=False):
     config = get_settings()
-    used = sum(p.lstat().st_size for p in root.iterdir() if p.is_file() and not p.is_symlink())
+    if config.audio_storage_backend == 'minio':
+        used = db.scalar(select(func.coalesce(func.sum(TranscriptionJob.audio_size_bytes), 0))
+                         .where(TranscriptionJob.status.in_(ACTIVE)))
+        free = float('inf')
+    else:
+        used = sum(p.lstat().st_size for p in root.iterdir() if p.is_file() and not p.is_symlink())
+        free = shutil.disk_usage(root).free
     count = db.scalar(select(func.count()).select_from(TranscriptionJob).where(TranscriptionJob.status.in_(ACTIVE)))
-    free = shutil.disk_usage(root).free
     if (used + incoming >= config.audio_queue_max_bytes or free - incoming <= config.audio_queue_min_free_bytes
             or count + int(new_job) > config.audio_queue_max_jobs
             or (not incoming and count >= config.audio_queue_max_jobs)):
@@ -61,12 +67,10 @@ def validate_audio(data):
 
 
 def job_path(job):
-    expected = Path(get_settings().audio_queue_dir) / f'{UUID(str(job.id))}.wav'
-    if job.audio_path is not None and job.audio_path != str(expected):
-        raise ValueError('Invalid job audio path')
-    if expected.is_symlink():
-        raise ValueError('Unsafe audio path')
-    return expected
+    try:
+        return local_audio_path(job)
+    except AudioStorageError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def atomic_store(root, job, data):
@@ -125,8 +129,9 @@ def receive_audio(analysis_id, tiktok_id, data, db, publisher=None):
             raise HTTPException(409, 'No active acquisition reservation')
         fmt = validate_audio(data)
         capacity(db, root, len(data))
-        path = atomic_store(root, job, data)
-        job.audio_path = str(path)
+        storage = get_audio_storage()
+        location = storage.put(job.id, data) if storage.backend == 'minio' else str(atomic_store(root, job, data))
+        job.audio_path = location
         job.audio_size_bytes = len(data)
         job.audio_duration = fmt['duration']
         job.audio_received_at = now()
@@ -207,13 +212,13 @@ def requeue_pending_jobs(db, publisher=None, limit=20):
             job = db.get(TranscriptionJob, job_id)
             video = db.scalar(select(Video).where(Video.id == job.video_id).with_for_update())
             from .services import lease_active
-            path = job_path(job)
-            if path.exists():
+            storage = get_audio_storage()
+            location = storage.recovery_location(job)
+            if location.startswith('minio://') or Path(location).exists():
                 try:
-                    with path.open('rb') as stream:
-                        data = stream.read(get_settings().max_audio_mb * 1024**2 + 1)
+                    data = storage.read_location(location)[:get_settings().max_audio_mb * 1024**2 + 1]
                     fmt = validate_audio(data)
-                    job.audio_path = str(path)
+                    job.audio_path = location
                     job.audio_size_bytes = len(data)
                     job.audio_duration = fmt['duration']
                     job.audio_received_at = now()
@@ -221,7 +226,7 @@ def requeue_pending_jobs(db, publisher=None, limit=20):
                     video.enrichment_status = 'audio_received'
                 except HTTPException:
                     job.status = 'failed'
-                    job.audio_path = str(path)
+                    job.audio_path = location
                     job.failed_at = now()
                     job.last_error_code = 'invalid_recovered_audio'
             elif not lease_active(video):
@@ -236,7 +241,21 @@ def requeue_pending_jobs(db, publisher=None, limit=20):
 
 def cleanup_audio(db):
     with inbox_lock() as root:
+        storage = get_audio_storage()
         cutoff = now() - timedelta(hours=get_settings().failed_audio_retention_hours)
+        remote_jobs = db.scalars(select(TranscriptionJob).where(
+            TranscriptionJob.audio_path.like('minio://%'))).all()
+        for job in remote_jobs:
+            removable = job.status == 'completed' or (job.status == 'failed' and older(job.failed_at, cutoff))
+            if not removable:
+                continue
+            try:
+                storage.delete(job)
+                job.audio_path = None
+                if job.last_error_code == 'cleanup_pending':
+                    job.last_error_code = None
+            except AudioStorageError:
+                job.last_error_code = 'cleanup_pending'
         for path in root.iterdir():
             if path.is_symlink() or path.suffix not in ('.wav', '.part'):
                 continue
@@ -264,3 +283,14 @@ def cleanup_audio(db):
                     if job:
                         job.last_error_code = 'cleanup_pending'
         db.commit()
+    # Object listings are best-effort reconciliation only.  A fresh object may
+    # exist after a crash between PUT and DB commit, so only old UUID objects
+    # without an operational row are eligible.
+    for location in storage.orphan_locations(time.time() - 7200):
+        key_job_id = UUID(location.rsplit('/', 1)[-1][:-4])
+        if db.get(TranscriptionJob, key_job_id) is None:
+            try:
+                storage.delete_location(location)
+            except AudioStorageError:
+                pass
+    storage.cleanup_scratch(time.time() - 7200)

@@ -18,8 +18,8 @@ def test_env_fallback(monkeypatch):
     assert Settings().resolve_database_url().database == 'kurukin_tiktok'
 
 
-@pytest.mark.parametrize('value', ['', 'invalid-private-test-password', URL.replace('kurukin_tiktok','n8n_v2_data'),
-    URL+'?host=another', URL.replace('+psycopg',''), URL.replace(':5432',':9999')])
+@pytest.mark.parametrize('value', ['', 'invalid-private-test-password', URL.replace('+psycopg',''),
+    'postgresql+psycopg://kurukin_tiktok:password@/kurukin_tiktok'])
 def test_malformed_secret(tmp_path, caplog, value):
     p=tmp_path/'secret'; p.write_text(value)
     config=Settings(database_url_file=str(p), database_url=URL)
@@ -36,6 +36,22 @@ def test_missing_file_no_fallback(tmp_path):
 def test_missing_configuration():
     with pytest.raises(DatabaseConfigurationError):
         Settings().resolve_database_url()
+
+
+def test_private_remote_database_and_rabbit_urls_are_allowed():
+    remote_db = 'postgresql+psycopg://kurukin_tiktok:private@postgres.private:15432/kurukin_tiktok?sslmode=require'
+    remote_rabbit = 'amqps://kurukin_tiktok:private@rabbit.private:5671/%2Fkurukin-tiktok'
+    assert Settings(database_url=remote_db).resolve_database_url().host == 'postgres.private'
+    assert Settings(rabbitmq_url=remote_rabbit).resolve_rabbitmq_url() == remote_rabbit
+
+
+def test_minio_default_endpoint_and_secret_files(tmp_path):
+    access, secret = tmp_path/'access', tmp_path/'secret'
+    access.write_text('access-key\n'); secret.write_text('secret-key\n')
+    settings = Settings(audio_storage_backend='minio', minio_bucket='kurukin-transcription-audio',
+                        minio_access_key_file=str(access), minio_secret_key_file=str(secret))
+    assert settings.minio_endpoint == 'http://minio:9000'
+    assert settings.resolve_minio_credentials() == ('access-key', 'secret-key')
 
 
 def test_alias_priority(monkeypatch):

@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import unquote, urlsplit
 from pydantic import AliasChoices, Field, SecretStr, model_validator, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
@@ -56,29 +57,68 @@ class Settings(BaseSettings):
     transcription_max_attempts: int = Field(3, ge=1)
     rabbitmq_url_file: str | None = Field(None, repr=False)
     rabbitmq_url: SecretStr | None = Field(None, repr=False)
+    audio_storage_backend: Literal['local', 'minio'] = 'local'
+    minio_endpoint: str | None = 'http://minio:9000'
+    minio_bucket: str | None = None
+    minio_access_key_file: str | None = Field(None, repr=False)
+    minio_access_key: SecretStr | None = Field(None, repr=False)
+    minio_secret_key_file: str | None = Field(None, repr=False)
+    minio_secret_key: SecretStr | None = Field(None, repr=False)
+    audio_scratch_dir: str = '/tmp/kurukin-audio'
 
     @property
     def initial_enrichment_budget(self):
         return self.acquisition_batch_size
 
     def resolve_rabbitmq_url(self):
-        from urllib.parse import urlsplit, unquote
         try:
             value = (Path(self.rabbitmq_url_file).read_text().strip() if self.rabbitmq_url_file
                      else self.rabbitmq_url.get_secret_value() if self.rabbitmq_url else '')
             url = urlsplit(value)
-            if (url.scheme != 'amqp' or url.hostname != 'rabbit_mq' or url.port != 5672
-                    or url.username != 'kurukin_tiktok' or not url.password
-                    or unquote(url.path) != '//kurukin-tiktok' or url.query or url.fragment):
+            if (url.scheme not in ('amqp', 'amqps') or not url.hostname or
+                    url.username != 'kurukin_tiktok' or not url.password or
+                    unquote(url.path) != '//kurukin-tiktok'):
                 raise ValueError()
             return value
         except Exception:
             raise RuntimeError('RabbitMQ configuration missing or invalid') from None
 
+    def _resolve_secret(self, file_name, secret, error_code):
+        try:
+            value = (Path(file_name).read_text().strip() if file_name else
+                     secret.get_secret_value().strip() if secret else '')
+            if not value:
+                raise ValueError()
+            return value
+        except Exception:
+            raise RuntimeError(error_code) from None
+
+    def resolve_minio_credentials(self):
+        return (self._resolve_secret(self.minio_access_key_file, self.minio_access_key,
+                                     'MinIO access key missing'),
+                self._resolve_secret(self.minio_secret_key_file, self.minio_secret_key,
+                                     'MinIO secret key missing'))
+
     @model_validator(mode='after')
     def duration_limits(self):
         if not self.min_transcribe_duration_seconds <= self.auto_transcribe_max_duration_seconds <= self.hard_transcribe_max_duration_seconds:
             raise ValueError('Duration limits must satisfy min <= auto <= hard')
+        return self
+
+    @model_validator(mode='after')
+    def audio_storage_configuration(self):
+        if self.audio_storage_backend != 'minio':
+            return self
+        try:
+            endpoint = urlsplit(self.minio_endpoint or '')
+            bucket = self.minio_bucket or ''
+            if (endpoint.scheme not in ('http', 'https') or not endpoint.hostname or
+                    endpoint.username or endpoint.password or endpoint.query or endpoint.fragment or
+                    not 3 <= len(bucket) <= 63 or bucket[0] == '-' or bucket[-1] == '-' or
+                    any(not (c.islower() or c.isdigit() or c == '-') for c in bucket)):
+                raise ValueError()
+        except Exception:
+            raise ValueError('MinIO configuration missing or invalid') from None
         return self
 
     @model_validator(mode='after')
@@ -172,10 +212,9 @@ class Settings(BaseSettings):
             else:
                 value = self.database_url.get_secret_value() if self.database_url else ''
             url = make_url(value)
-            if (url.drivername != 'postgresql+psycopg' or url.host != 'postgres'
-                    or url.port != 5432 or url.database != 'kurukin_tiktok'
-                    or url.username != 'kurukin_tiktok' or not url.password
-                    or url.query or any(c.isspace() for c in value)):
+            if (url.drivername != 'postgresql+psycopg' or not url.host or
+                    url.database != 'kurukin_tiktok' or url.username != 'kurukin_tiktok' or
+                    not url.password or any(c.isspace() for c in value)):
                 raise ValueError()
             return url
         except Exception:

@@ -11,6 +11,7 @@ from starlette.formparsers import MultiPartParser
 from starlette.concurrency import run_in_threadpool
 
 from .audio import MIMES
+from .audio_storage import AudioStorageError
 from .config import get_settings
 from .db import get_db, get_engine
 from .models import Analysis
@@ -183,7 +184,7 @@ async def upload_audio(analysis_id: UUID, tiktok_id: str, request: Request,
             raise HTTPException(413, 'Audio exceeds MAX_AUDIO_MB')
         try:
             return await run_in_threadpool(process_audio, analysis_id, tiktok_id, data, db)
-        except OSError:
+        except (OSError, AudioStorageError):
             return JSONResponse(status_code=503, content={'code': 'audio_storage_unavailable', 'retryable': True})
 
 

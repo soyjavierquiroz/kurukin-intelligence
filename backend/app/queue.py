@@ -1,5 +1,6 @@
-"""RabbitMQ carries IDs only. Never log connection parameters or broker exceptions."""
+"""RabbitMQ carries IDs and a validated audio object key only; never secrets or WAV bytes."""
 import json
+from .audio_storage import parse_minio_uri
 from .config import get_settings
 
 QUEUE = 'transcription.v1'
@@ -27,8 +28,12 @@ def publish_job(job):
         channel = connection.channel()
         declare(channel)
         channel.confirm_delivery()
+        message = {'job_id': str(job.id), 'video_id': str(job.video_id)}
+        if job.audio_path and job.audio_path.startswith('minio://'):
+            _bucket, key = parse_minio_uri(job.audio_path)
+            message['audio_object_key'] = key
         channel.basic_publish(exchange='', routing_key=QUEUE,
-            body=json.dumps({'job_id': str(job.id), 'video_id': str(job.video_id)}).encode(),
+            body=json.dumps(message).encode(),
             properties=pika.BasicProperties(content_type='application/json', delivery_mode=2,
                                             priority=max(0, min(100, job.priority))), mandatory=True)
     finally:
