@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import io
 import json
+import re
 import secrets
 import threading
 import time
@@ -94,13 +95,19 @@ def _number(value: Decimal | float | int | None) -> float | int | None:
     return value
 
 
+def _build_marker() -> str:
+    """Return safe, short runtime deployment provenance for internal HTML."""
+    value = get_settings().build_sha or ''
+    return value[:7].lower() if re.fullmatch(r'[0-9a-fA-F]{7,64}', value) else 'dev'
+
+
 def _layout(title: str, content: str) -> HTMLResponse:
     return HTMLResponse(f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_e(title)} · Kurukin</title><style>
 :root{{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fa}}
-body{{margin:0}}main{{max-width:1280px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:24px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:10px;padding:18px;margin:14px 0}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:3px 7px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY{{background:#dcfce7;color:#166534}}.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:7px;padding:8px 12px;cursor:pointer;display:inline-block}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:8px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:340px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin Internal Research</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1</span></header>{content}</main></body></html>''')
+body{{margin:0}}main{{max-width:1280px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:24px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:10px;padding:18px;margin:14px 0}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:3px 7px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY{{background:#dcfce7;color:#166534}}.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:7px;padding:8px 12px;cursor:pointer;display:inline-block}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:8px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:340px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}}}
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin Internal Research</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.2 · SCI v1 · Build {_e(_build_marker())}</span></header>{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -239,7 +246,8 @@ def research_channel(channel_id: uuid.UUID, _auth: None = Depends(require_admin)
     priority_table = ''.join(priority_rows) or '<tr><td colspan="7" class="muted">No eligible priority videos under current selection semantics.</td></tr>'
     content = f'''<p><a href="/admin/research">← Global corpus</a></p><h2>@{_e(channel.username)}</h2><p class="muted">{_e(channel.nickname)} · Stable TikTok author ID: <code>{_e(channel.tiktok_user_id or 'not available')}</code> · {_status_badge(data['status'])}</p>
 <div class="stat-grid"><div class="stat"><b>{data['total_videos']}</b>total videos</div><div class="stat"><b>{data['priority_count']}</b>priority pool</div><div class="stat"><b>{data['transcripts_total']}</b>transcripts total</div><div class="stat"><b>{data['priority_transcripts']}</b>priority transcripts</div><div class="stat"><b>{data['missing_priority']}</b>missing priority</div><div class="stat"><b>{_when(data['latest_seen'])}</b>latest metrics snapshot</div></div>
-<div class="actions"><a class="button" href="/admin/research/channels/{channel.id}/import">Import historical transcripts</a><a class="button" href="/admin/research/channels/{channel.id}/export">Export for AI</a><a class="button" href="/admin/research/channels/{channel.id}/prompt">Generate prompt</a><a class="button" href="/admin/research/channels/{channel.id}/intelligence">Channel Intelligence</a><a class="button secondary" href="/admin/research/historical-import-prompt">Copy historical import prompt</a></div>
+<div class="card"><h2>Structured Channel Intelligence</h2><ol><li><b>Preparar investigación</b></li><li><b>Analizar con IA</b></li><li><b>Importar inteligencia</b></li><li><b>Resultados</b></li></ol><div class="actions"><a class="button" href="/admin/research/channels/{channel.id}/intelligence">Structured Channel Intelligence</a></div></div>
+<div class="actions"><a class="button secondary" href="/admin/research/channels/{channel.id}/import">Import historical transcripts</a><a class="button secondary" href="/admin/research/channels/{channel.id}/export">Export Research Pack</a><a class="button secondary" href="/admin/research/channels/{channel.id}/prompt">Generador de prompt legacy</a><a class="button secondary" href="/admin/research/historical-import-prompt">Copy historical import prompt</a></div>
 <h2>Priority videos</h2><div class="card table-wrap"><table><thead><tr><th>Video ID</th><th>Published</th><th>Views</th><th>Engagement rate</th><th>Outlier score</th><th>Transcript</th><th>Source / model</th></tr></thead><tbody>{priority_table}</tbody></table></div>'''
     return _layout(f'@{channel.username}', content)
 
@@ -651,9 +659,9 @@ def channel_intelligence_page(channel_id: uuid.UUID, _auth: None = Depends(requi
         f'<td>{_when(item.updated_at)}</td><td><a href="/admin/research/channels/{channel_id}/intelligence/{item.id}">View</a></td></tr>'
         for item in analyses
     ) or '<tr><td colspan="4" class="muted">No imported Channel Intelligence yet.</td></tr>'
-    content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(data['channel'].username)}</a></p><h2>Channel Intelligence</h2>
+    content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(data['channel'].username)}</a></p><h2>Structured Channel Intelligence</h2>
 <p class="muted">Structured, externally generated analysis is accepted only when it names the exact current Research Pack hash and includes every video in that pack.</p>
-<div class="actions"><a class="button" href="/admin/research/channels/{channel_id}/intelligence/prompt">Generate contractual prompt</a><a class="button secondary" href="/admin/research/channels/{channel_id}/export?mode=all">Export Research Pack</a></div>
+<div class="card"><ol><li><b>Preparar investigación</b> — <a href="/admin/research/channels/{channel_id}/export">Export Research Pack</a></li><li><b>Analizar con IA</b> — <a href="/admin/research/channels/{channel_id}/intelligence/prompt">Generate contractual prompt</a></li><li><b>Importar inteligencia</b> — upload the returned JSON below.</li><li><b>Resultados</b> — review imported analyses below.</li></ol></div>
 <div class="card"><h2>Import analysis</h2><form method="post" action="/admin/research/channels/{channel_id}/intelligence/import/dry-run" enctype="multipart/form-data"><label>kurukin-channel-analysis-v1.json<br><input required type="file" name="file" accept=".json,application/json"></label><div class="actions"><button>Upload and dry run</button></div></form><p class="muted">The dry run validates the frozen schema, Research Pack hash, every per-video record, and evidence references. Nothing is stored until confirmation.</p></div>
 <h2>Imported analyses</h2><div class="card table-wrap"><table><thead><tr><th>Research Pack hash</th><th>Selection</th><th>Updated</th><th></th></tr></thead><tbody>{cards}</tbody></table></div>'''
     return _layout('Channel Intelligence', content)
@@ -787,8 +795,8 @@ def generated_prompt(channel: Channel, preset: str, business: str, goal: str, in
 def prompt_page(channel_id: uuid.UUID, _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     channel = _channel_or_404(db, channel_id)['channel']
     options = ''.join(f'<option value="{key}">{_e(value[0])}</option>' for key, value in PROMPT_PRESETS.items())
-    content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(channel.username)}</a></p><h2>Generate external AI prompt</h2><div class="card"><form method="post" action="/admin/research/channels/{channel_id}/prompt"><label>Preset <select name="preset">{options}</select></label><p><label>Business/context<br><input name="business" maxlength="4000"></label></p><p><label>Goal<br><input name="goal" maxlength="4000"></label></p><p><label>Additional instructions<br><textarea name="instructions" style="min-height:120px" maxlength="8000"></textarea></label></p><button>Generate prompt</button></form></div>'''
-    return _layout('Generate prompt', content)
+    content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(channel.username)}</a></p><h2><span class="badge legacy">LEGACY PROMPT GENERATOR</span></h2><p class="muted">Structured Channel Intelligence is the current primary workflow. This free-form generator remains available for advanced use.</p><div class="actions"><a class="button" href="/admin/research/channels/{channel_id}/intelligence">Ir a Structured Channel Intelligence</a></div><details class="card"><summary><b>Opciones avanzadas · legacy</b></summary><form method="post" action="/admin/research/channels/{channel_id}/prompt"><p><label>Preset <select name="preset">{options}</select></label></p><p><label>Business/context<br><input name="business" maxlength="4000"></label></p><p><label>Goal<br><input name="goal" maxlength="4000"></label></p><p><label>Additional instructions<br><textarea name="instructions" style="min-height:120px" maxlength="8000"></textarea></label></p><button class="secondary">Generate legacy prompt</button></form></details>'''
+    return _layout('Legacy Prompt Generator', content)
 
 
 def _prompt_result_page(channel_id: uuid.UUID, prompt: str) -> HTMLResponse:

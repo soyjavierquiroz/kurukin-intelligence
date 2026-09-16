@@ -210,6 +210,36 @@ def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(
     assert videos[0].url.encode() in detail.body
 
 
+def test_research_ux_versions_structured_primary_and_demotes_legacy_prompt(db, monkeypatch):
+    channel, _videos = corpus(db)
+    monkeypatch.setenv('KURUKIN_BUILD_SHA', '193a52fbe8fd1d96336fdf9abc69fb8684452d28')
+    get_settings.cache_clear()
+
+    detail = admin.research_channel(channel.id, db=db).body.decode()
+    structured_href = f'/admin/research/channels/{channel.id}/intelligence'
+    legacy_href = f'/admin/research/channels/{channel.id}/prompt'
+    assert f'<a class="button" href="{structured_href}">Structured Channel Intelligence</a>' in detail
+    assert f'<a class="button" href="{legacy_href}"' not in detail
+    assert 'Preparar investigación' in detail and 'Analizar con IA' in detail
+    assert 'Importar inteligencia' in detail and 'Resultados' in detail
+    assert 'Generador de prompt legacy' in detail
+
+    legacy = admin.prompt_page(channel.id, db=db).body.decode()
+    assert 'LEGACY PROMPT GENERATOR' in legacy
+    assert f'href="{structured_href}">Ir a Structured Channel Intelligence</a>' in legacy
+    assert 'Opciones avanzadas' in legacy and 'Business/context' in legacy
+
+    index = admin.research_index(db=db).body.decode()
+    intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
+    for page in (index, detail, intelligence):
+        assert 'INTERNAL RESEARCH BACKOFFICE v1.2 · SCI v1 · Build 193a52f' in page
+    assert 'Preparar investigación' in intelligence and 'Importar inteligencia' in intelligence
+
+    monkeypatch.delenv('KURUKIN_BUILD_SHA')
+    get_settings.cache_clear()
+    assert 'Build dev' in admin._layout('test', '').body.decode()
+
+
 @pytest.mark.parametrize('preset', list(admin.PROMPT_PRESETS))
 def test_prompt_presets_include_evidence_rules(db, preset):
     channel, _videos = corpus(db)

@@ -28,6 +28,7 @@ services:
         target: kurukin_tiktok_admin_password_v1
         mode: 0400
     environment:
+      KURUKIN_BUILD_SHA: ${KURUKIN_BUILD_SHA:-dev}
       DATABASE_URL_FILE: /run/secrets/kurukin_tiktok_database_url
       ACQUISITION_BATCH_SIZE: '10'
       AUDIO_QUEUE_MAX_BYTES: '3221225472'

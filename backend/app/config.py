@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra='ignore', hide_input_in_errors=True)
     database_url_file: str | None = Field(None, repr=False)
     database_url: SecretStr | None = Field(None, repr=False)
+    # Non-secret deployment provenance shown only in the internal research UI.
+    build_sha: str | None = Field(None, validation_alias='KURUKIN_BUILD_SHA')
     # The research backoffice has a deliberately small, deployment-managed
     # authentication boundary.  These defaults match the Swarm secret targets
     # and are resolved only when an /admin route is requested.
