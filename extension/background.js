@@ -45,7 +45,12 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
   return true;
 });
 
-chrome.alarms?.onAlarm.addListener(alarm=>{if(AUTO_CURATOR_V1_ENABLED&&alarm.name==='kurukin-auto-curator-retry')void curator().tick().then(state=>{const channel=state?.channels?.find(item=>item.id===state.active_channel_id);if(channel&&Number.isInteger(state.tab_id))return chrome.tabs.sendMessage(state.tab_id,{type:'KURUKIN_AUTO_CAPACITY_RETRY',channelId:channel.id}).catch(()=>{});});});
+chrome.alarms?.onAlarm.addListener(alarm=>{if(AUTO_CURATOR_V1_ENABLED&&alarm.name==='kurukin-auto-curator-retry')void curator().tick().then(state=>{const channel=state?.channels?.find(item=>item.id===state.active_channel_id);if(channel&&Number.isInteger(state.tab_id)&&Number.isFinite(channel.acquisition_cooldown_until)&&channel.acquisition_cooldown_until<=Date.now())return chrome.tabs.sendMessage(state.tab_id,{type:'KURUKIN_AUTO_CAPACITY_RETRY',channelId:channel.id}).catch(()=>{});});});
+
+// Chrome terminates MV3 service workers freely.  A browser startup is the
+// safe point at which no prior page controller survives, so restore the
+// persisted logical run (never a new analysis or scan) from local storage.
+chrome.runtime.onStartup?.addListener(()=>{if(AUTO_CURATOR_V1_ENABLED)void curator().wake();});
 
 chrome.action.onClicked.addListener(async tab=>{
   if(!tab.id)return;

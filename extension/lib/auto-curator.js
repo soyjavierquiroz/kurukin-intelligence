@@ -2,13 +2,14 @@
 (function(root){
   'use strict';
   const KEY='kurukin_auto_curator_v1', VERSION=2, LOCK_MS=60000, RETRY_MS=30000, SCAN_CHECKPOINT_SIZE=50;
-  const globals=['idle','running','paused','stopped','completed'];
+  const AUTO_RETRY_DELAYS=[15000,60000,180000], AUTO_RETRY_MAX=AUTO_RETRY_DELAYS.length;
+  const globals=['idle','running','paused','stopped','completed','needs_user'];
   const resetInProgress=new Set(['releasing','clearing_local_state','restarting','waiting_profile','scanning']);
   const discoveryRecoveryStates=new Set(['idle','stopping_stale_scan','restoring_profile','rehydrating','restoring_cursor','restarting_scan','scanning','needs_user','failed']);
   // These failures originate in the browser-only discovery path.  Authentication
   // and challenge failures are deliberately excluded: they need an operator.
   const recoverableDiscoveryErrors=new Set(['DIRECT_TIKTOK_STATUS','DIRECT_NETWORK','DIRECT_HTTP','DIRECT_RESPONSE_INVALID','DIRECT_CURSOR_STALLED','DIRECT_BUSY','DIRECT_CONTEXT_MISSING','DIRECT_TARGET_MISSING','PROFILE_HYDRATION_TIMEOUT']);
-  const channels=['pending','opening','recovering','scanning','checkpointing','interleaving','draining','scan_complete','acquiring','waiting','exhausted','completed','paused','error','needs_user','skipped'];
+  const channels=['pending','opening','recovering','scanning','checkpointing','interleaving','draining','scan_complete','acquiring','waiting','exhausted','completed','paused','error','needs_user','deferred','terminal','skipped'];
   const nowISO=now=>new Date(now()).toISOString();
   function normalized(value){
     if(typeof value!=='string')return null;
@@ -23,13 +24,39 @@
     for(const value of values){const item=normalized(value);if(item&&!seen.has(item.channel)){seen.add(item.channel);result.push(item);}}
     return result;
   }
-  function empty(now=Date.now){return {version:VERSION,status:'idle',channels:[],active_channel_id:null,tab_id:null,lock:null,updated_at:nowISO(now)};}
+  function empty(now=Date.now){return {version:VERSION,status:'idle',channels:[],active_channel_id:null,tab_id:null,lock:null,queue_unattended_state:'idle',auto_retry_enabled:true,auto_retry_attempt:0,auto_retry_max:AUTO_RETRY_MAX,auto_retry_next_at:null,auto_retry_last_reason:null,queue_pending_count:0,queue_running_count:0,queue_deferred_count:0,queue_completed_count:0,queue_needs_user_count:0,current_channel_recovery_class:null,deferred_retry_pass_started:false,deferred_retry_pass_completed:false,last_queue_transition:'created',last_queue_transition_at:nowISO(now),updated_at:nowISO(now)};}
   const acquisition=()=>({eligible:0,reserved:0,transferred:0,accepted:0,failed:0,released:0,state:'idle'});
-  function channelRecord(item,index,at){return {id:`channel-${index}-${item.channel}`,channel:item.channel,profile_url:item.profile_url,status:'pending',started_at:null,updated_at:at,last_error:null,last_historical_error:null,processed_count:0,acquired_count:0,analysis_id:null,scan_id:null,checkpoint_saved_count:0,checkpoint_discovered_count:0,discovery_state:'idle',recovery_state:'idle',recovery_attempts:0,last_recovery_reason:null,last_recovery_at:null,resumed_from_checkpoint:null,resumed_from_cursor:null,profile_matches_active_channel:null,acquisition_state:'idle',acquisition_capacity_state:'normal',acquisition_cooldown_until:null,last_capacity_error_code:null,drain_state:'scanning',pending_incremental:0,pending_final:0,final_pending_ids:[],final_drain_recovery_state:'idle',reserved_not_handed_off:0,media_ref_missing:0,reacquire_attempts:0,current_profile_matches_active_channel:null,current_run_reset_count:0,last_reset_reason:null,last_reset_at:null,reset_recovery_state:'idle',acquisition:acquisition()};}
+  function channelRecord(item,index,at){return {id:`channel-${index}-${item.channel}`,channel:item.channel,profile_url:item.profile_url,status:'pending',started_at:null,updated_at:at,last_error:null,last_historical_error:null,processed_count:0,acquired_count:0,analysis_id:null,scan_id:null,checkpoint_saved_count:0,checkpoint_discovered_count:0,discovery_state:'idle',recovery_state:'idle',recovery_attempts:0,last_recovery_reason:null,last_recovery_at:null,resumed_from_checkpoint:null,resumed_from_cursor:null,profile_matches_active_channel:null,acquisition_state:'idle',acquisition_capacity_state:'normal',acquisition_cooldown_until:null,last_capacity_error_code:null,drain_state:'scanning',pending_incremental:0,pending_final:0,final_pending_ids:[],final_drain_recovery_state:'idle',reserved_not_handed_off:0,media_ref_missing:0,reacquire_attempts:0,current_profile_matches_active_channel:null,current_run_reset_count:0,last_reset_reason:null,last_reset_at:null,reset_recovery_state:'idle',auto_retry_attempt:0,auto_retry_next_at:null,auto_retry_last_reason:null,recovery_class:null,deferred_at:null,deferred_retry_passed:false,acquisition:acquisition()};}
   function queue(input,tabId,now=Date.now){const at=nowISO(now),items=normalize(input);return {...empty(now),status:items.length?'running':'idle',tab_id:Number.isInteger(tabId)?tabId:null,channels:items.map((item,index)=>channelRecord(item,index,at))};}
   function valid(state){return !!state&&state.version===VERSION&&globals.includes(state.status)&&Array.isArray(state.channels)&&state.channels.every(c=>c&&typeof c.id==='string'&&typeof c.channel==='string'&&typeof c.profile_url==='string'&&channels.includes(c.status));}
   function active(state){return state.channels.find(c=>c.id===state.active_channel_id)||null;}
   function clone(value){return JSON.parse(JSON.stringify(value));}
+  const userActionError=code=>/CHALLENGE|CAPTCHA|LOGIN|AUTH(?:ENTICATION)?_REQUIRED|DIRECT_403/.test(String(code||''));
+  const terminalChannelError=code=>/PROFILE_(?:UNAVAILABLE|PRIVATE|DELETED)|CHANNEL_(?:UNAVAILABLE|PRIVATE|DELETED)|DIRECT_PROFILE_(?:UNAVAILABLE|PRIVATE|DELETED)|DIRECT_CHANNEL_(?:UNAVAILABLE|PRIVATE|DELETED)/.test(String(code||''));
+  function recoveryClass(event){
+    const code=event?.error||event?.reason||'';
+    if(userActionError(code))return 'GLOBAL_NEEDS_USER';
+    if(event?.global===true||event?.connectivity==='global'||code==='GLOBAL_NETWORK_UNAVAILABLE'||code==='GLOBAL_BROWSER_UNAVAILABLE')return 'GLOBAL_TEMPORARY';
+    if(terminalChannelError(code))return 'CHANNEL_LOCAL_TERMINAL';
+    if(recoverableDiscoveryErrors.has(code))return 'RECOVERABLE_TRANSIENT';
+    return null;
+  }
+  function diagnostics(state,transitionName,now){
+    const list=state.channels||[], current=active(state), at=nowISO(now);
+    state.auto_retry_enabled=true;state.auto_retry_max=AUTO_RETRY_MAX;
+    state.auto_retry_attempt=current?.auto_retry_attempt||0;
+    state.auto_retry_next_at=current?.auto_retry_next_at||null;
+    state.auto_retry_last_reason=current?.auto_retry_last_reason||null;
+    state.queue_pending_count=list.filter(c=>c.status==='pending').length;
+    state.queue_running_count=list.filter(c=>['opening','recovering','scanning','checkpointing','interleaving','draining','scan_complete','acquiring','waiting'].includes(c.status)).length;
+    state.queue_deferred_count=list.filter(c=>c.status==='deferred').length;
+    state.queue_completed_count=list.filter(c=>['completed','terminal','skipped'].includes(c.status)).length;
+    state.queue_needs_user_count=list.filter(c=>c.status==='needs_user').length;
+    state.current_channel_recovery_class=current?.recovery_class||null;
+    state.queue_unattended_state=state.status==='needs_user'?'needs_user':current?.status==='recovering'?'recovering':state.status;
+    if(transitionName){state.last_queue_transition=transitionName;state.last_queue_transition_at=at;}
+    return state;
+  }
   function transition(original,event,now=Date.now){
     const state=clone(valid(original)?original:empty(now)), at=nowISO(now), current=active(state);
     const update=(status,patch={})=>{if(!current)return;Object.assign(current,patch,{status,updated_at:at});};
@@ -41,7 +68,7 @@
       case 'OPENING': update('opening',{started_at:current?.started_at||at}); break;
       case 'RECOVERY_START': update('recovering',{last_historical_error:current?.last_error||current?.last_historical_error||null,last_error:null,recovery_state:'stopping_stale_scan',recovery_attempts:(current?.recovery_attempts||0)+1,last_recovery_reason:event.reason||current?.last_error||'DIRECT_INTERNAL',last_recovery_at:at,resumed_from_checkpoint:Number.isSafeInteger(current?.checkpoint_saved_count)?current.checkpoint_saved_count:0,resumed_from_cursor:current?.resume_state?.cursor||null,profile_matches_active_channel:null}); state.status='running'; break;
       case 'RECOVERY_STATE': {const recoveryState=discoveryRecoveryStates.has(event.recovery_state)?event.recovery_state:current?.recovery_state||'failed';update(recoveryState==='scanning'?'scanning':'recovering',{recovery_state:recoveryState,profile_matches_active_channel:typeof event.profile_matches_active_channel==='boolean'?event.profile_matches_active_channel:current?.profile_matches_active_channel??null,last_error:event.clear_error===true?null:current?.last_error||null});state.status='running';break;}
-      case 'SCANNING': update('scanning',{navigation_attempts:0,last_historical_error:current?.last_error||current?.last_historical_error||null,last_error:null,scan_target:event.scan_target==='full'||Number.isSafeInteger(event.scan_target)?event.scan_target:current?.scan_target||null,analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,resume_state:event.resume_state||current?.resume_state||null,scan_complete:false,discovery_state:'scanning',drain_state:'scanning',recovery_state:current?.recovery_state&&current.recovery_state!=='idle'?'scanning':'idle',profile_matches_active_channel:typeof event.profile_matches_active_channel==='boolean'?event.profile_matches_active_channel:current?.profile_matches_active_channel??null,reset_recovery_state:current?.reset_recovery_state&&current.reset_recovery_state!=='idle'?'scanning':'idle'}); break;
+      case 'SCANNING': update('scanning',{navigation_attempts:0,last_historical_error:current?.last_error||current?.last_historical_error||null,last_error:null,scan_target:event.scan_target==='full'||Number.isSafeInteger(event.scan_target)?event.scan_target:current?.scan_target||null,analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,resume_state:event.resume_state||current?.resume_state||null,scan_complete:false,discovery_state:'scanning',drain_state:'scanning',recovery_state:current?.recovery_state&&current.recovery_state!=='idle'?'scanning':'idle',profile_matches_active_channel:typeof event.profile_matches_active_channel==='boolean'?event.profile_matches_active_channel:current?.profile_matches_active_channel??null,reset_recovery_state:current?.reset_recovery_state&&current.reset_recovery_state!=='idle'?'scanning':'idle',auto_retry_attempt:0,auto_retry_next_at:null,recovery_class:null}); break;
       case 'CHECKPOINT': update('checkpointing',{analysis_id:event.analysis_id||current?.analysis_id||null,scan_id:event.scan_id||current?.scan_id||null,scan_target:event.target==='full'||Number.isSafeInteger(event.target)?event.target:current?.scan_target||null,processed_count:Number.isSafeInteger(event.discovered_count)?event.discovered_count:current?.processed_count||0,checkpoint_count:Number.isSafeInteger(event.checkpoint_count)?event.checkpoint_count:current?.checkpoint_count||0,checkpoint_number:Number.isSafeInteger(event.checkpoint_number)?event.checkpoint_number:current?.checkpoint_number||0,resume_state:event.resume_state||current?.resume_state||null,has_more:event.has_more===true,checkpoint_updated_at:at,scan_complete:event.scan_complete===true,discovery_state:'checkpointing'}); break;
       case 'CHECKPOINT_SAVED': update(current?.scan_complete?'draining':'scanning',{checkpoint_saved_count:Number.isSafeInteger(event.checkpoint_count)?event.checkpoint_count:current?.checkpoint_saved_count||0,checkpoint_discovered_count:Number.isSafeInteger(event.discovered_count)?event.discovered_count:current?.checkpoint_discovered_count||0,discovery_state:'checkpoint_saved'}); break;
       case 'INTERLEAVING': update(current?.scan_complete?'draining':'scanning',{analysis_id:event.analysis_id||current?.analysis_id||null,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current?.acquired_count||0,acquisition_state:'reserved'}); break;
@@ -57,7 +84,7 @@
       case 'CAPACITY_NORMAL': update(current?.status||'scanning',{acquisition_capacity_state:'normal',acquisition_cooldown_until:null,last_capacity_error_code:null,acquisition_state:event.state||current?.acquisition_state||'idle',drain_state:current?.scan_complete?'draining':current?.drain_state||'scanning'}); break;
       case 'WAITING': update('waiting',{last_error:event.error||null,retry_at:now()+RETRY_MS}); break;
       case 'REOPEN': {const attempts=(current?.navigation_attempts||0)+1,recovering=current?.recovery_state&&current.recovery_state!=='idle';if(attempts>4){update('error',{last_error:'NAVIGATION_TARGET_MISMATCH',navigation_attempts:attempts,recovery_state:recovering?'failed':current?.recovery_state||'idle',profile_matches_active_channel:false});state.status='paused';}else{state.status='running';update(recovering?'recovering':'opening',{last_error:null,navigation_attempts:attempts,recovery_state:recovering?'restoring_profile':current?.recovery_state||'idle',profile_matches_active_channel:false});}break;}
-      case 'NEEDS_USER': update('needs_user',{last_error:event.error||'TikTok requires manual intervention',recovery_state:current?.scan_complete?current?.recovery_state||'idle':'needs_user',profile_matches_active_channel:typeof event.profile_matches_active_channel==='boolean'?event.profile_matches_active_channel:current?.profile_matches_active_channel??null,final_drain_recovery_state:current?.scan_complete?'needs_user':current?.final_drain_recovery_state||'idle'}); state.status='paused'; break;
+      case 'NEEDS_USER': update('needs_user',{last_error:event.error||'TikTok requires manual intervention',recovery_class:'GLOBAL_NEEDS_USER',recovery_state:current?.scan_complete?current?.recovery_state||'idle':'needs_user',profile_matches_active_channel:typeof event.profile_matches_active_channel==='boolean'?event.profile_matches_active_channel:current?.profile_matches_active_channel??null,final_drain_recovery_state:current?.scan_complete?'needs_user':current?.final_drain_recovery_state||'idle'}); state.status='needs_user'; break;
       case 'ERROR': update('error',{last_error:event.error||'AUTO_CURATOR_ERROR',recovery_state:current?.recovery_state&&current.recovery_state!=='idle'?'failed':current?.recovery_state||'idle',reset_recovery_state:current?.current_run_reset_count?'failed':current?.reset_recovery_state||'idle'}); state.status='paused'; break;
       case 'COMPLETE': if(current&&!(current.scan_complete&&(current.pending_final>0||(current.final_pending_ids||[]).length>0))){update('exhausted',{processed_count:Number.isSafeInteger(event.processed_count)?event.processed_count:current.processed_count,acquired_count:Number.isSafeInteger(event.acquired_count)?event.acquired_count:current.acquired_count,discovery_state:'complete',acquisition_state:'complete',drain_state:'complete',final_drain_recovery_state:'complete'});update('completed');state.active_channel_id=null;} break;
     }
@@ -66,10 +93,10 @@
   function create({storage,tabs,alarms,now=Date.now,instanceId=`auto-${Math.random().toString(36).slice(2)}`}={}){
     if(!storage?.get||!storage?.set)throw Error('AUTO_STORAGE_REQUIRED');
     const load=async()=>{const state=await storage.get(KEY);return valid(state)?state:empty(now);};
-    const save=state=>storage.set(KEY,state);
-    const schedule=async state=>{const c=active(state),when=c?.status==='waiting'?c.retry_at:c?.acquisition_cooldown_until;if(state.status==='running'&&Number.isFinite(when)&&when>now()&&alarms?.create)await alarms.create('kurukin-auto-curator-retry',{when});};
+    const save=(state,label)=>storage.set(KEY,diagnostics(state,label,now));
+    const schedule=async state=>{const c=active(state),when=c?.status==='recovering'?c.auto_retry_next_at:c?.status==='waiting'?c.retry_at:c?.acquisition_cooldown_until;if(state.status==='running'&&Number.isFinite(when)&&when>now()&&alarms?.create)await alarms.create('kurukin-auto-curator-retry',{when});};
     async function lock(state){const at=now(), held=state.lock;if(held&&held.owner!==instanceId&&held.expires_at>at)return null;state.lock={owner:instanceId,expires_at:at+LOCK_MS};return state;}
-    async function persistTransition(event){let state=await lock(await load());if(!state)return null;state=transition(state,event,now);await save(state);await schedule(state);return state;}
+    async function persistTransition(event){let state=await lock(await load());if(!state)return null;state=transition(state,event,now);await save(state,event.type);await schedule(state);return state;}
     async function open(state,channel,navigateFallback=false){
       // A persisted active channel is never permission to scan whichever profile is
       // currently visible. `ensure` returns true only after Chrome confirms its URL.
@@ -78,11 +105,21 @@
       if(tabs?.run)await tabs.run(state.tab_id,channel);return true;
     }
     async function tick(){let state=await lock(await load());if(!state)return null;if(state.status!=='running'){await save(state);return state;}const c=active(state);
+      if(c?.status==='recovering'){
+        if(Number.isFinite(c.auto_retry_next_at)&&c.auto_retry_next_at>now()){await save(state);await schedule(state);return state;}
+        if(Number.isFinite(c.auto_retry_next_at)){c.auto_retry_next_at=null;await save(state,'automatic_same_run_recovery');return recoverDiscovery(state,c,c.auto_retry_last_reason||c.last_error||'DIRECT_INTERNAL');}
+        await save(state);await open(state,c,true);return state;
+      }
       if(c?.status==='waiting'&&c.retry_at>now()){await save(state);await schedule(state);return state;}
       if(c?.status==='waiting'){state=transition(state,{type:'OPENING'},now);await save(state);await open(state,active(state));return state;}
       if(c){await save(state);return state;}
       const next=state.channels.find(item=>item.status==='pending');
-      if(!next){state.status='completed';state.updated_at=nowISO(now);await save(state);return state;}
+      if(!next){
+        const deferred=state.channels.find(item=>item.status==='deferred'&&!item.deferred_retry_passed);
+        if(deferred){state.active_channel_id=deferred.id;Object.assign(deferred,{status:'recovering',deferred_retry_pass_active:true,deferred_retry_passed:true,recovery_class:'DEFERRED_AFTER_RETRIES',auto_retry_next_at:null,updated_at:nowISO(now)});state.deferred_retry_pass_started=true;state.updated_at=nowISO(now);await save(state,'deferred_retry_pass_started');return recoverDiscovery(state,deferred,deferred.last_error||'DIRECT_INTERNAL');}
+        if(state.channels.some(item=>item.status==='deferred'))state.deferred_retry_pass_completed=true;
+        state.status='completed';state.updated_at=nowISO(now);await save(state,'queue_completed');return state;
+      }
       state.active_channel_id=next.id;state=transition(state,{type:'OPENING'},now);await save(state);await open(state,next,true);return state;
     }
     let chain=Promise.resolve();
@@ -96,7 +133,7 @@
       state=queue(input,tabId,now);state.lock={owner:instanceId,expires_at:now()+LOCK_MS};await save(state);return tick();
     }
     async function pause(){const state=await persistTransition({type:'PAUSE'});if(state&&tabs?.pause)await tabs.pause(state.tab_id);return state;}
-    const canRecoverDiscovery=channel=>!!channel&&channel.scan_complete!==true&&channel.status==='error'&&recoverableDiscoveryErrors.has(channel.last_error);
+    const canRecoverDiscovery=channel=>!!channel&&['error','deferred','recovering'].includes(channel.status)&&recoverableDiscoveryErrors.has(channel.last_error);
     async function recoverDiscovery(state,channel,reason){
       state=transition(state,{type:'RECOVERY_START',reason},now);await save(state);
       try{
@@ -113,18 +150,32 @@
       }
       return state;
     }
-    async function resume(){let state=await lock(await load());if(!state)return null;const c=active(state);if(canRecoverDiscovery(c))return recoverDiscovery(state,c,c.last_error);state=transition(state,{type:'RESUME'},now);await save(state);await schedule(state);const current=active(state),recovering=current?.scan_complete===true&&(current.pending_final>0||(current.final_pending_ids||[]).length>0);if(state?.status==='running'&&current&&(current.status==='opening'||recovering))await open(state,current,recovering);return state;}
-    async function retryCurrent(){let state=await lock(await load());if(!state)return null;const c=active(state);if(!canRecoverDiscovery(c)){await save(state);return state;}return recoverDiscovery(state,c,c.last_error);}
+    async function handleFailure(event){let state=await lock(await load());if(!state)return null;const c=active(state),kind=recoveryClass(event);if(!c){await save(state);return state;}
+      const at=nowISO(now),reason=event.error||'AUTO_CURATOR_ERROR';
+      if(kind==='GLOBAL_NEEDS_USER'||event.type==='NEEDS_USER'){state=transition(state,{type:'NEEDS_USER',error:reason,profile_matches_active_channel:event.profile_matches_active_channel},now);await save(state,'needs_user');if(tabs?.pause)await tabs.pause(state.tab_id);return state;}
+      if(kind==='CHANNEL_LOCAL_TERMINAL'){Object.assign(c,{status:'terminal',last_error:reason,recovery_class:kind,auto_retry_next_at:null,updated_at:at});state.active_channel_id=null;state.updated_at=at;await save(state,'channel_terminal');return tick();}
+      if(kind==='RECOVERABLE_TRANSIENT'||kind==='GLOBAL_TEMPORARY'){
+        if(c.deferred_retry_pass_active){Object.assign(c,{status:'deferred',last_error:reason,recovery_class:'DEFERRED_AFTER_RETRIES',deferred_at:c.deferred_at||at,deferred_retry_pass_active:false,auto_retry_next_at:null,updated_at:at});state.active_channel_id=null;state.updated_at=at;await save(state,'deferred_retry_pass_failed');return tick();}
+        const prior=Number.isSafeInteger(c.auto_retry_attempt)?c.auto_retry_attempt:0,attempt=Math.min(prior+1,AUTO_RETRY_MAX);
+        if(kind==='GLOBAL_TEMPORARY'||prior<AUTO_RETRY_MAX){Object.assign(c,{status:'recovering',last_error:reason,recovery_class:kind,auto_retry_attempt:attempt,auto_retry_next_at:now()+AUTO_RETRY_DELAYS[attempt-1],auto_retry_last_reason:reason,recovery_state:'stopping_stale_scan',updated_at:at});state.updated_at=at;await save(state,'automatic_recovery_scheduled');await schedule(state);return state;}
+        Object.assign(c,{status:'deferred',last_error:reason,recovery_class:'DEFERRED_AFTER_RETRIES',deferred_at:at,auto_retry_next_at:null,updated_at:at});state.active_channel_id=null;state.updated_at=at;await save(state,'channel_deferred');return tick();
+      }
+      state=transition(state,{type:'ERROR',error:reason},now);await save(state,'error');return state;
+    }
+    async function resume(){let state=await lock(await load());if(!state)return null;let c=active(state);if(!c&&state.status==='completed'){const deferred=state.channels.find(item=>item.status==='deferred');if(deferred){state.status='running';state.active_channel_id=deferred.id;Object.assign(deferred,{status:'error',deferred_retry_pass_active:false,updated_at:nowISO(now)});c=deferred;}}
+      if(canRecoverDiscovery(c)){state.status='running';return recoverDiscovery(state,c,c.last_error);}if(state.status==='needs_user'&&c){state.status='running';Object.assign(c,{status:'opening',last_historical_error:c.last_error||c.last_historical_error||null,last_error:null,updated_at:nowISO(now)});}else state=transition(state,{type:'RESUME'},now);await save(state,'resume');await schedule(state);const current=active(state),recovering=current?.scan_complete===true&&(current.pending_final>0||(current.final_pending_ids||[]).length>0);if(state?.status==='running'&&current&&(current.status==='opening'||recovering||current.status==='recovering'))await open(state,current,recovering);return state;}
+    async function retryCurrent(){let state=await lock(await load());if(!state)return null;let c=active(state);if(!c){const deferred=state.channels.find(item=>item.status==='deferred');if(deferred){state.status='running';state.active_channel_id=deferred.id;Object.assign(deferred,{status:'error',deferred_retry_pass_active:false,updated_at:nowISO(now)});c=deferred;}}if(!canRecoverDiscovery(c)){await save(state);return state;}state.status='running';return recoverDiscovery(state,c,c.last_error);}
     async function resetCurrent(reason='manual_reset'){let state=await lock(await load());if(!state)return null;const c=active(state);if(!c||resetInProgress.has(c.reset_recovery_state)){await save(state);return state;}const tabId=state.tab_id,at=nowISO(now);state.status='running';Object.assign(c,{status:'opening',updated_at:at,current_run_reset_count:(Number.isSafeInteger(c.current_run_reset_count)?c.current_run_reset_count:0)+1,last_reset_reason:typeof reason==='string'&&reason?reason:'manual_reset',last_reset_at:at,reset_recovery_state:'releasing'});state.updated_at=at;await save(state);try{if(tabs?.reset&&Number.isInteger(tabId))await tabs.reset(tabId);}catch{const failed=await lock(await load());if(failed){const current=active(failed);if(current)Object.assign(current,{status:'error',last_error:'RESET_CURRENT_FAILED',reset_recovery_state:'failed',updated_at:nowISO(now)});failed.status='paused';failed.updated_at=nowISO(now);await save(failed);}return failed||state;}
       state=await lock(await load());if(!state)return null;const current=active(state);if(!current){await save(state);return state;}Object.assign(current,{reset_recovery_state:'clearing_local_state',updated_at:nowISO(now)});state.updated_at=nowISO(now);await save(state);const resetCount=Number.isSafeInteger(current.current_run_reset_count)?current.current_run_reset_count:1,lastResetReason=current.last_reset_reason||'manual_reset',lastResetAt=current.last_reset_at||nowISO(now),fresh=channelRecord({channel:current.channel,profile_url:current.profile_url},0,nowISO(now));Object.keys(current).forEach(key=>delete current[key]);Object.assign(current,fresh,{id:current.id||state.active_channel_id,channel:fresh.channel,profile_url:fresh.profile_url,status:'opening',current_run_reset_count:resetCount,last_reset_reason:lastResetReason,last_reset_at:lastResetAt,reset_recovery_state:'restarting'});state.status='running';state.updated_at=nowISO(now);await save(state);if(alarms?.clear)await alarms.clear('kurukin-auto-curator-retry');try{if(tabs?.navigate&&Number.isInteger(state.tab_id))await tabs.navigate(state.tab_id,current.profile_url);else await open(state,current,true);}catch{const failed=await lock(await load());if(failed){const activeCurrent=active(failed);if(activeCurrent)Object.assign(activeCurrent,{status:'error',last_error:'RESET_CURRENT_FAILED',reset_recovery_state:'failed',updated_at:nowISO(now)});failed.status='paused';failed.updated_at=nowISO(now);await save(failed);}return failed||state;}return state;}
     async function stop(){const state=await persistTransition({type:'STOP'});if(state&&tabs?.pause)await tabs.pause(state.tab_id);return state;}
     async function clear(){let state=await lock(await load());if(!state)return null;const tabId=state.tab_id;state=empty(now);await save(state);if(alarms?.clear)await alarms.clear('kurukin-auto-curator-retry');if(tabs?.pause&&Number.isInteger(tabId))await tabs.pause(tabId);return state;}
     async function removePending(channelId){let state=await lock(await load());if(!state)return null;const target=state.channels.find(channel=>channel.id===channelId);if(!target||target.status!=='pending'){await save(state);return state;}state.channels=state.channels.filter(channel=>channel.id!==channelId);state.updated_at=nowISO(now);await save(state);return state;}
     async function skip(){const state=await persistTransition({type:'SKIP'});return state?.status==='running'?tick():state;}
-    async function event(event){const state=await persistTransition(event);if(event.type==='REOPEN'&&state?.status==='running'&&['opening','recovering'].includes(active(state)?.status)){await open(state,active(state),true);return state;}return state?.status==='running'&&['COMPLETE','WAITING'].includes(event.type)?tick():state;}
-    async function ready(tabId){const state=await lock(await load());if(!state||state.status!=='running'||state.tab_id!==tabId){if(state)await save(state);return state;}const c=active(state);if(c?.status==='opening'&&c.reset_recovery_state==='restarting')Object.assign(c,{reset_recovery_state:'waiting_profile',updated_at:nowISO(now)});await save(state);if(c&&(c.status==='opening'||c.status==='recovering'||c.scan_complete===true&&(c.pending_final>0||(c.final_pending_ids||[]).length>0)))await open(state,c);return state;}
-    return Object.freeze({key:KEY,load,enqueue:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),start:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),retryCurrent:()=>exclusive(retryCurrent),resetCurrent:reason=>exclusive(()=>resetCurrent(reason)),stop:()=>exclusive(stop),clear:()=>exclusive(clear),removePending:channelId=>exclusive(()=>removePending(channelId)),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),tick:()=>exclusive(tick)});
+    async function event(event){if(event?.type==='ERROR'||event?.type==='NEEDS_USER')return handleFailure(event);const state=await persistTransition(event);if(event.type==='REOPEN'&&state?.status==='running'&&['opening','recovering'].includes(active(state)?.status)){await open(state,active(state),true);return state;}return state?.status==='running'&&['COMPLETE','WAITING'].includes(event.type)?tick():state;}
+    async function ready(tabId){const state=await lock(await load());if(!state||state.status!=='running'||state.tab_id!==tabId){if(state)await save(state);return state;}const c=active(state);if(c?.status==='opening'&&c.reset_recovery_state==='restarting')Object.assign(c,{reset_recovery_state:'waiting_profile',updated_at:nowISO(now)});await save(state,'content_ready');if(c&&(c.status==='opening'||c.status==='recovering'||c.status==='scanning'||c.status==='checkpointing'||c.status==='interleaving'||c.scan_complete===true&&(c.pending_final>0||(c.final_pending_ids||[]).length>0)))await open(state,c);return state;}
+    async function wake(){let state=await lock(await load());if(!state)return null;if(state.status!=='running'){await save(state);return state;}const c=active(state);if(c?.status==='recovering')return tick();if(c&&['opening','scanning','checkpointing','interleaving','draining','scan_complete','acquiring','waiting'].includes(c.status)){await save(state,'service_worker_wake');await open(state,c,true);return state;}await save(state,'service_worker_wake');return tick();}
+    return Object.freeze({key:KEY,load,enqueue:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),start:(input,tabId)=>exclusive(()=>enqueue(input,tabId)),pause:()=>exclusive(pause),resume:()=>exclusive(resume),retryCurrent:()=>exclusive(retryCurrent),resetCurrent:reason=>exclusive(()=>resetCurrent(reason)),stop:()=>exclusive(stop),clear:()=>exclusive(clear),removePending:channelId=>exclusive(()=>removePending(channelId)),skip:()=>exclusive(skip),event:value=>exclusive(()=>event(value)),ready:tabId=>exclusive(()=>ready(tabId)),wake:()=>exclusive(wake),tick:()=>exclusive(tick)});
   }
-  const api=Object.freeze({KEY,VERSION,LOCK_MS,RETRY_MS,SCAN_CHECKPOINT_SIZE,globals,channels,resetInProgress,discoveryRecoveryStates,recoverableDiscoveryErrors,normalized,normalize,empty,queue,valid,active,transition,create});
+  const api=Object.freeze({KEY,VERSION,LOCK_MS,RETRY_MS,SCAN_CHECKPOINT_SIZE,AUTO_RETRY_DELAYS,AUTO_RETRY_MAX,globals,channels,resetInProgress,discoveryRecoveryStates,recoverableDiscoveryErrors,userActionError,terminalChannelError,recoveryClass,normalized,normalize,empty,queue,valid,active,transition,create});
   root.KurukinAutoCurator=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
