@@ -16,6 +16,7 @@ from .config import get_settings
 from .db import get_db, get_engine
 from .models import Analysis
 from .services import analysis_response, create_analysis
+from .admin import router as admin_router
 
 
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +77,7 @@ class BodyLimitMiddleware:
 
 
 app.add_middleware(BodyLimitMiddleware)
+app.include_router(admin_router)
 
 
 @app.exception_handler(RequestValidationError)

@@ -21,6 +21,12 @@ services:
       - source: kurukin_tiktok_minio_secret_key_v1
         target: kurukin_tiktok_minio_secret_key
         mode: 0400
+      - source: kurukin_tiktok_admin_username_v1
+        target: kurukin_tiktok_admin_username_v1
+        mode: 0400
+      - source: kurukin_tiktok_admin_password_v1
+        target: kurukin_tiktok_admin_password_v1
+        mode: 0400
     environment:
       DATABASE_URL_FILE: /run/secrets/kurukin_tiktok_database_url
       ACQUISITION_BATCH_SIZE: '10'
@@ -58,7 +64,7 @@ services:
       labels:
         - 'traefik.enable=true'
         - 'traefik.docker.network=traefik_public'
-        - 'traefik.http.routers.kurukin-tiktok-api.rule=Host(`intelligence.kuruk.in`) && (PathPrefix(`/api/`) || Path(`/health`))'
+        - 'traefik.http.routers.kurukin-tiktok-api.rule=Host(`intelligence.kuruk.in`) && (PathPrefix(`/api/`) || PathPrefix(`/admin/`) || Path(`/health`))'
         - 'traefik.http.routers.kurukin-tiktok-api.entrypoints=websecure'
         - 'traefik.http.routers.kurukin-tiktok-api.tls=true'
         - 'traefik.http.routers.kurukin-tiktok-api.tls.certresolver=le'
@@ -146,6 +152,10 @@ secrets:
   kurukin_tiktok_minio_access_key_v1:
     external: true
   kurukin_tiktok_minio_secret_key_v1:
+    external: true
+  kurukin_tiktok_admin_username_v1:
+    external: true
+  kurukin_tiktok_admin_password_v1:
     external: true
 volumes:
   kurukin_tiktok_whisper_cache:

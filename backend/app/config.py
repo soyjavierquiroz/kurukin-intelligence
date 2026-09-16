@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra='ignore', hide_input_in_errors=True)
     database_url_file: str | None = Field(None, repr=False)
     database_url: SecretStr | None = Field(None, repr=False)
+    # The research backoffice has a deliberately small, deployment-managed
+    # authentication boundary.  These defaults match the Swarm secret targets
+    # and are resolved only when an /admin route is requested.
+    admin_username_file: str | None = '/run/secrets/kurukin_tiktok_admin_username_v1'
+    admin_password_file: str = '/run/secrets/kurukin_tiktok_admin_password_v1'
+    admin_username: str | None = Field(None, repr=False)
     acquisition_batch_size: int = Field(10, ge=1, le=500, validation_alias=AliasChoices('ACQUISITION_BATCH_SIZE', 'acquisition_batch_size', 'INITIAL_ENRICHMENT_BUDGET', 'TOP_TRANSCRIPTS', 'initial_enrichment_budget'))
     min_transcribe_duration_seconds: float = Field(8, ge=0, allow_inf_nan=False)
     auto_transcribe_max_duration_seconds: float = Field(180, gt=0, allow_inf_nan=False)
@@ -107,6 +113,27 @@ class Settings(BaseSettings):
             return value
         except Exception:
             raise RuntimeError('RabbitMQ configuration missing or invalid') from None
+
+    def resolve_admin_credentials(self) -> tuple[str, str]:
+        """Read the admin HTTP Basic credentials without retaining secrets.
+
+        A file-backed username is preferred.  ``ADMIN_USERNAME`` is accepted
+        only as the explicitly allowed non-secret deployment convenience; the
+        password always has to come from its Docker secret file.
+        """
+        try:
+            username = (Path(self.admin_username_file).read_text().strip()
+                        if self.admin_username_file else '')
+        except OSError:
+            username = ''
+        username = username or (self.admin_username or '').strip()
+        try:
+            password = Path(self.admin_password_file).read_text().strip()
+        except OSError:
+            password = ''
+        if not username or not password:
+            raise RuntimeError('admin_auth_configuration_missing')
+        return username, password
 
     def _resolve_secret(self, file_name, secret, error_code):
         try:
