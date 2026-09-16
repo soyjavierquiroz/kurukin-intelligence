@@ -49,7 +49,11 @@ def test_initial_migration_matches_metadata_and_downgrade():
             spec8=importlib.util.spec_from_file_location('channel_intelligence_analysis', ROOT/'alembic/versions/0008_channel_intelligence_analysis.py')
             eighth=importlib.util.module_from_spec(spec8); spec8.loader.exec_module(eighth)
             eighth.upgrade()
+            spec9=importlib.util.spec_from_file_location('private_content_packs', ROOT/'alembic/versions/0009_private_content_packs.py')
+            ninth=importlib.util.module_from_spec(spec9); spec9.loader.exec_module(ninth)
+            ninth.upgrade()
             assert compare_metadata(context, Base.metadata) == []
+            ninth.downgrade()
             eighth.downgrade()
             seventh.downgrade()
             sixth.downgrade()
@@ -202,6 +206,30 @@ def test_0008_adds_and_removes_only_channel_intelligence_tables():
             assert set(inspect(connection).get_table_names()) == before
 
 
+def test_0009_adds_and_removes_only_private_content_packs_table():
+    def migration(name):
+        spec = importlib.util.spec_from_file_location(name, ROOT/f'alembic/versions/{name}.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        return module
+    migrations = [migration(name) for name in (
+        '0001_global_corpus', '0002_async_transcription_jobs', '0003_audio_assessment',
+        '0004_video_music_metadata', '0005_global_incremental_channel_corpus', '0006_viral_dna',
+        '0007_semantic_viral_dna', '0008_channel_intelligence_analysis', '0009_private_content_packs')]
+    with create_engine('sqlite://').begin() as connection:
+        context = MigrationContext.configure(connection)
+        with Operations.context(context):
+            for item in migrations[:-1]:
+                item.upgrade()
+            before = set(inspect(connection).get_table_names())
+            migrations[-1].upgrade()
+            assert set(inspect(connection).get_table_names()) == before | {'private_content_packs'}
+            assert {column['name'] for column in inspect(connection).get_columns('private_content_packs')} >= {
+                'channel_id', 'analysis_id', 'private_context', 'content_pack'
+            }
+            migrations[-1].downgrade()
+            assert set(inspect(connection).get_table_names()) == before
+
+
 def test_postgres_offline_sql_and_revision(monkeypatch):
     monkeypatch.setenv('DATABASE_URL', 'postgresql+psycopg://kurukin_tiktok:test-secret@postgres:5432/kurukin_tiktok')
     output=io.StringIO()
@@ -212,6 +240,7 @@ def test_postgres_offline_sql_and_revision(monkeypatch):
     assert 'CREATE TABLE viral_dna' in sql and 'uq_viral_dna_video_extractor_version' in sql
     assert 'semantic_input_sha256' in sql and 'ck_viral_dna_hook_type' in sql
     assert 'CREATE TABLE channel_intelligence_analyses' in sql and 'CREATE TABLE channel_video_intelligence' in sql
+    assert 'CREATE TABLE private_content_packs' in sql
     assert 'test-secret' not in sql and 'n8n_v2_data' not in sql
 
 

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app import admin
 from app.config import get_settings
 from app.main import app
-from app.models import Analysis, Channel, ChannelIntelligenceAnalysis, ChannelVideoIntelligence, Transcript, Video, VideoSnapshot
+from app.models import Analysis, Channel, ChannelIntelligenceAnalysis, ChannelVideoIntelligence, PrivateContentPack, Transcript, Video, VideoSnapshot
 
 
 def make_channel(db, username='creator', nickname='Creator', author_id='stable-creator'):
@@ -212,20 +212,75 @@ def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(
     assert videos[0].url.encode() in detail.body
 
 
-def test_single_page_inline_workflow_and_schema_drift(db):
+def test_single_page_actionable_workflow_and_schema_drift(db):
     channel, _videos = corpus(db)
     data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    sci['channel_intelligence']['winning_patterns'] = [{
+        'name': 'Pain → meaning → hope', 'description': 'Moves from a specific pain to a hopeful resolution.',
+        'evidence': [{'claim': 'Repeated in strong videos.', 'video_ids': [sci['videos'][0]['video_id']]}],
+    }]
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
     page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
-    for step in ('Paso 1 · Preparar investigación', 'Paso 2 · Analizar con IA', 'Paso 3 · Importar inteligencia', 'Paso 4 · Resultados'):
-        assert step in page
-    assert 'target="research-pack-download"' in page
-    assert 'fetch(base+\'/import/dry-run\'' in page
+    assert page.index('WHAT WORKS') < page.index('Ver análisis completo')
+    assert 'Crear contenido basado en estos patrones' in page
+    assert 'CREATE v1' in page and 'YOUR CONTENT PLAN' in page
     assert 'https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m' in page
-    assert 'target="_blank"' in page and 'Pegar JSON manualmente' in page
     payload = _channel_analysis_payload(data)
     payload['video_intelligence'] = payload.pop('videos')
     _value, errors, _mode, _status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(payload).encode())
     assert any("se recibió 'video_intelligence'" in error.lower() for error in errors)
+
+
+def _content_pack(channel, evidence_id, pattern='Pain → meaning → hope'):
+    return {
+        'schema': 'kurukin-content-pack-v1',
+        'source_channel': {'channel_id': str(channel.id), 'username': channel.username},
+        'strategy': {'primary_patterns': [pattern], 'recommended_positioning': 'Helpful operator',
+                     'content_formula': 'Pain → meaning → hope', 'recommended_cta_strategy': 'Invite a reply',
+                     'recommended_content_mix': 'Three educational, one offer'},
+        'content_ideas': [{'title': 'A better way', 'objective': 'Start conversations', 'hook': 'You are not behind.',
+                           'angle': 'Reframe', 'pain': 'Overwhelm', 'desire': 'Clarity', 'mechanism': 'Hope', 'cta': 'Reply PLAN',
+                           'source_patterns': [pattern], 'source_evidence_video_ids': [evidence_id]}],
+        'scripts': [{'title': 'A better way script', 'objective': 'Earn trust', 'duration_target': '45 seconds',
+                     'hook': 'You are not behind.', 'body': 'Name the problem and show the next step.', 'cta': 'Reply PLAN',
+                     'source_patterns': [pattern], 'source_evidence_video_ids': [evidence_id]}],
+    }
+
+
+def test_private_content_pack_contract_prompt_import_and_render(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    evidence_id = sci['videos'][0]['video_id']
+    sci['channel_intelligence']['winning_patterns'] = [{'name': 'Pain → meaning → hope', 'description': 'A repeatable reframe.',
+        'evidence': [{'claim': 'Repeated in strong videos.', 'video_ids': [evidence_id]}]}]
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis))
+    context = admin._private_context_from_form('Product', 'Offer', 'Operators', 'Leads', 'Direct', '')
+    prompt = admin.content_pack_prompt(data, analysis, context)
+    assert 'kurukin-content-pack.json' in prompt and 'FILE_GENERATION_UNAVAILABLE' in prompt
+    assert 'Do NOT paste a giant JSON blob' in prompt
+    payload = _content_pack(channel, evidence_id)
+    errors = admin.validate_content_pack(payload, channel_id=str(channel.id), username=channel.username,
+                                         known_patterns=set(admin._known_patterns(analysis)), known_video_ids={evidence_id, sci['videos'][1]['video_id']})
+    assert errors == []
+    bad = json.loads(json.dumps(payload)); bad['scripts'][0]['source_evidence_video_ids'] = ['unknown']
+    assert any('unknown evidence IDs' in error for error in admin.validate_content_pack(
+        bad, channel_id=str(channel.id), username=channel.username, known_patterns=set(admin._known_patterns(analysis)), known_video_ids={evidence_id}))
+    pending = admin.PendingContentPackImport(channel.id, analysis.id, payload, context, admin.canonical_json_sha256(payload), 1e20)
+    token = admin._store_pending_content_pack(pending)
+    response = admin.content_pack_import_confirm(channel.id, token, db=db)
+    assert b'"ok":true' in response.body
+    stored = db.scalar(select(PrivateContentPack))
+    assert stored.private_context == context
+    assert analysis.channel_intelligence == sci['channel_intelligence']  # private data never enters global SCI
+    rendered = admin._content_pack_results(data, analysis, stored)
+    assert 'A better way' in rendered and 'Ver patrón de origen' in rendered and 'Caption 1' in rendered
 
 
 def test_inline_dry_run_summary_and_human_video_label(db):
@@ -260,8 +315,8 @@ def test_research_ux_versions_structured_primary_and_demotes_legacy_prompt(db, m
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'INTERNAL RESEARCH BACKOFFICE v1.3 · SCI v1 · Build 193a52f' in page
-    assert 'Paso 1 · Preparar investigación' in intelligence and 'Paso 4 · Resultados' in intelligence
+        assert 'INTERNAL RESEARCH BACKOFFICE v1.4 · SCI v1 · CREATE v1 · Build 193a52f' in page
+    assert 'Structured Channel Intelligence' in intelligence
 
     monkeypatch.delenv('KURUKIN_BUILD_SHA')
     get_settings.cache_clear()

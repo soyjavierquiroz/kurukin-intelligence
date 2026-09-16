@@ -32,9 +32,10 @@ from .channel_intelligence_contract import (
     CHANNEL_ANALYSIS_JSON_SCHEMA, CHANNEL_INTELLIGENCE_PROMPT_VERSION, CHANNEL_INTELLIGENCE_SCHEMA_VERSION,
     canonical_json_sha256, validate_channel_analysis,
 )
+from .content_pack_contract import CONTENT_PACK_SCHEMA_VERSION, validate_content_pack
 from .models import (
     Channel, ChannelIntelligenceAnalysis, ChannelVideoIntelligence, Transcript,
-    Video, VideoSnapshot,
+    PrivateContentPack, Video, VideoSnapshot,
 )
 from .ranking import priority_view_cutoff, rank_snapshots
 from .services import eligibility
@@ -107,7 +108,7 @@ def _layout(title: str, content: str) -> HTMLResponse:
 <title>{_e(title)} · Kurukin</title><style>
 :root{{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fa}}
 body{{margin:0}}main{{max-width:1280px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:24px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:10px;padding:18px;margin:14px 0}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:3px 7px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY{{background:#dcfce7;color:#166534}}.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:7px;padding:10px 14px;cursor:pointer;display:inline-block;min-height:44px}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:10px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:340px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}.step{{padding:0;overflow:hidden}}.step>summary{{cursor:pointer;list-style:none;padding:17px;font-size:1.05rem;min-height:24px}}.step>summary::-webkit-details-marker{{display:none}}.step-body{{padding:0 17px 17px}}.step-done{{color:#166534}}.dropzone{{display:block;border:2px dashed #8ba3bd;border-radius:9px;padding:28px 16px;text-align:center;background:#f8fafc;cursor:pointer}}.dropzone input{{display:none}}.error-box{{background:#fee2e2;color:#7f1d1d;padding:12px;border-radius:7px}}.result-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}}.video-card{{border-left:4px solid #1659b7}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}.actions{{display:grid}}.actions>*{{width:100%;text-align:center}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin Internal Research</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.3 · SCI v1 · Build {_e(_build_marker())}</span></header>{content}</main></body></html>''')
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin Internal Research</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.4 · SCI v1 · CREATE v1 · Build {_e(_build_marker())}</span></header>{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -546,6 +547,38 @@ _pending_channel_intelligence_imports: dict[str, PendingChannelIntelligenceImpor
 _pending_channel_intelligence_lock = threading.Lock()
 
 
+@dataclass
+class PendingContentPackImport:
+    channel_id: uuid.UUID
+    analysis_id: uuid.UUID
+    payload: dict[str, Any]
+    private_context: dict[str, str]
+    payload_sha256: str
+    created: float
+
+
+_pending_content_pack_imports: dict[str, PendingContentPackImport] = {}
+_pending_content_pack_lock = threading.Lock()
+
+
+def _store_pending_content_pack(value: PendingContentPackImport) -> str:
+    token = secrets.token_urlsafe(32)
+    with _pending_content_pack_lock:
+        cutoff = time.time() - PENDING_IMPORT_TTL_SECONDS
+        for key in [key for key, pending in _pending_content_pack_imports.items() if pending.created < cutoff]:
+            del _pending_content_pack_imports[key]
+        _pending_content_pack_imports[token] = value
+    return token
+
+
+def _take_pending_content_pack(token: str, channel_id: uuid.UUID) -> PendingContentPackImport:
+    with _pending_content_pack_lock:
+        pending = _pending_content_pack_imports.pop(token, None)
+    if pending is None or pending.channel_id != channel_id or pending.created < time.time() - PENDING_IMPORT_TTL_SECONDS:
+        raise HTTPException(410, 'Content Pack preview expired; upload the JSON again')
+    return pending
+
+
 def _store_pending_channel_intelligence(value: PendingChannelIntelligenceImport) -> str:
     token = secrets.token_urlsafe(32)
     with _pending_channel_intelligence_lock:
@@ -697,6 +730,114 @@ def _channel_analysis_items(value: dict[str, Any]) -> list[tuple[str, dict[str, 
     return result
 
 
+_PLAYBOOK_SECTIONS = (
+    ('winning_patterns', 'Top winning mechanisms'), ('hooks', 'Top hook structures'),
+    ('pains', 'Top pain/desire patterns'), ('narratives', 'Top narrative structures'),
+    ('ctas', 'Top CTA patterns'), ('repetition_clusters', 'Top repetition strategies'),
+)
+
+
+def _known_patterns(analysis: ChannelIntelligenceAnalysis) -> dict[str, dict[str, Any]]:
+    """The imported named patterns are the sole source for the Create contract."""
+    patterns: dict[str, dict[str, Any]] = {}
+    for _section, item in _channel_analysis_items(analysis.channel_intelligence):
+        name = item.get('name')
+        if isinstance(name, str) and name.strip():
+            patterns.setdefault(name, item)
+    return patterns
+
+
+def _evidence_badges(entries: list[dict[str, Any]], records: dict[str, dict[str, Any]]) -> str:
+    badges: list[str] = []
+    for entry in entries:
+        for video_id in entry.get('video_ids', []):
+            record = records.get(video_id)
+            if record is None:
+                continue
+            views = record.get('views')
+            outlier = record.get('outlier_score')
+            value = f'{views:,} views' if isinstance(views, int) else 'Evidence'
+            if outlier is not None:
+                value += f' · outlier {float(outlier):.1f}'
+            badges.append(f'<span class="badge legacy">{_e(value)}</span>')
+    return ' '.join(badges[:4]) or '<span class="muted">Evidence cited in imported intelligence.</span>'
+
+
+def _playbook_items(items: list[dict[str, Any]], records: dict[str, dict[str, Any]]) -> str:
+    if not items:
+        return '<p class="muted">No imported pattern in this category.</p>'
+    return ''.join(
+        f'<div class="card"><b>{_e(item.get("name") or "Pattern")}</b><p>{_e(item.get("description") or "")}</p>'
+        f'<p>{_evidence_badges(item.get("evidence", []), records)}</p></div>'
+        for item in items[:5] if isinstance(item, dict)
+    )
+
+
+def _actionable_playbook(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis) -> str:
+    records = {record['video_id']: record for record in _selection(data, analysis.selection_mode)}
+    value = analysis.channel_intelligence
+    sections = ''.join(
+        f'<h3>{label}</h3>{_playbook_items(value.get(key, []), records)}'
+        for key, label in _PLAYBOOK_SECTIONS
+    )
+    winning = value.get('winning_patterns', [])
+    formula = ' → '.join(str(item.get('name')) for item in winning[:3] if isinstance(item, dict) and item.get('name')) or 'Use the strongest repeated pattern, then adapt it to your offer.'
+    avoid = value.get('opportunities', [])
+    avoid_text = '; '.join(str(item.get('name')) for item in avoid[:3] if isinstance(item, dict) and item.get('name')) or 'Avoid unsupported claims and weakly evidenced variations.'
+    return f'''<section id="what-works"><h2>WHAT WORKS</h2>{sections}</section>
+<section id="why-it-works"><h2>WHY IT WORKS</h2><div class="card"><p>{_e(value.get('summary') or 'Imported evidence identifies repeated mechanisms across this channel.')}</p><p><b>DO MORE OF THIS</b><br>{_e(formula)}</p><p><b>AVOID / LESS USEFUL</b><br>{_e(avoid_text)}</p><p><b>DOMINANT CONTENT FORMULA</b><br>{_e(formula)}</p></div></section>
+<section id="what-next"><h2>WHAT YOU SHOULD DO NEXT</h2><p>Adapt these proven mechanisms to your own business, offer and audience—without copying the competitor’s identity, wording, claims or creative expression.</p><div class="actions"><button type="button" id="create-from-patterns">Crear contenido basado en estos patrones</button></div></section>'''
+
+
+def _private_context_from_form(business: str, offer: str, audience: str, goal: str, tone: str, constraints: str) -> dict[str, str]:
+    values = {'business': business, 'offer': offer, 'audience': audience, 'goal': goal, 'tone': tone, 'constraints': constraints}
+    required = ('business', 'offer', 'audience', 'goal', 'tone')
+    errors = [f'{field} is required' for field in required if not values[field].strip()]
+    errors.extend(f'{field} is too long' for field, value in values.items() if len(value) > 4000)
+    if errors:
+        raise HTTPException(422, {'errors': errors})
+    return {field: value.strip() for field, value in values.items()}
+
+
+def content_pack_prompt(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis, context: dict[str, str]) -> str:
+    patterns = _known_patterns(analysis)
+    pattern_lines = '\n'.join(f'- {name}: {item.get("description", "")}' for name, item in patterns.items())
+    source = {'channel_id': str(data['channel'].id), 'username': data['channel'].username}
+    return f'''# Kurukin Content Pack v1
+
+YOUR TASK IS TO CREATE A DOWNLOADABLE FILE, NOT A MARKDOWN REPORT.
+
+Create and attach exactly one valid JSON file named `kurukin-content-pack.json`.
+Do NOT paste a giant JSON blob into chat. If file generation is unavailable, respond exactly:
+FILE_GENERATION_UNAVAILABLE
+
+Adapt the proven structures and mechanisms below to the user's business. Do NOT re-analyze the competitor. Do NOT copy the competitor's identity, exact wording, claims, or creative expression. Do not include competitor metrics in user-generated content fields.
+
+PRIVATE USER CONTEXT (do not treat as competitor intelligence):
+- Business/product: {context['business']}
+- Offer: {context['offer']}
+- Target audience: {context['audience']}
+- Goal: {context['goal']}
+- Tone/style: {context['tone']}
+- Constraints: {context['constraints'] or 'None supplied'}
+
+KNOWN SOURCE PATTERNS (use names exactly in source_patterns):
+{pattern_lines or '- No named patterns were imported.'}
+
+Every generated idea and script MUST have non-empty `source_patterns`. When a specific imported video inspired it, add its Kurukin ID to `source_evidence_video_ids`; only use IDs supplied by Kurukin in the original intelligence context.
+
+Required root shape (no extra root fields):
+{{
+  "schema": "{CONTENT_PACK_SCHEMA_VERSION}",
+  "source_channel": {json.dumps(source, ensure_ascii=False)},
+  "strategy": {{"primary_patterns": ["..."], "recommended_positioning": "...", "content_formula": "...", "recommended_cta_strategy": "...", "recommended_content_mix": "..."}},
+  "content_ideas": [{{"title": "...", "objective": "...", "hook": "...", "angle": "...", "pain": "...", "desire": "...", "mechanism": "...", "cta": "...", "source_patterns": ["..."], "source_evidence_video_ids": []}}],
+  "scripts": [{{"title": "...", "objective": "...", "duration_target": "...", "hook": "...", "body": "...", "cta": "...", "source_patterns": ["..."], "source_evidence_video_ids": []}}]
+}}
+
+Return only the downloadable `kurukin-content-pack.json` file. Do not return a Markdown report.'''
+
+
 @router.get('/research/channels/{channel_id}/intelligence', response_class=HTMLResponse)
 def channel_intelligence_page(channel_id: uuid.UUID, _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     data = _channel_or_404(db, channel_id)
@@ -704,20 +845,17 @@ def channel_intelligence_page(channel_id: uuid.UUID, _auth: None = Depends(requi
         ChannelIntelligenceAnalysis.channel_id == channel_id
     ).order_by(ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc())))
     latest = analyses[0] if analyses else None
-    recommended = _selection(data, 'recommended')
-    recommended_hash = research_pack_hash(data, 'recommended') if recommended else None
-    initial_open = 'step4' if latest else 'step1'
-    short_hash = recommended_hash[:12] if recommended_hash else 'sin Research Pack disponible'
-    result_html = _channel_intelligence_results(data, latest, db) if latest else '<p class="muted">Importa un archivo válido para ver los resultados aquí.</p>'
-    completed = ' <span class="step-done">✓</span>' if latest else ''
-    prior_completed = ' ✓' if latest else ''
-    content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(data['channel'].username)}</a></p><h2>Structured Channel Intelligence</h2>
-<p class="muted">Un flujo único: prepara el pack, analízalo fuera de Kurukin, impórtalo y revisa el resultado sin volver atrás.</p>
-<details class="card step" id="step1" {'open' if initial_open == 'step1' else ''}><summary>Paso 1 · Preparar investigación<span id="done1" class="step-done">{prior_completed}</span></summary><div class="step-body"><p><b>@{_e(data['channel'].username)}</b> · {_e(data['channel'].nickname or '—')}</p><div class="result-grid"><div class="stat"><b>{data['priority_count']}</b>priority pool</div><div class="stat"><b>{data['priority_transcripts']}/{data['priority_count']}</b>cobertura de transcripciones</div><div class="stat"><b>Recommended</b>selección</div><div class="stat"><b><code>{_e(short_hash)}</code></b>Research Pack hash</div></div><form id="research-pack-form" method="get" action="/admin/research/channels/{channel_id}/export.zip" target="research-pack-download"><label>Modo de selección <select id="pack-mode" name="mode"><option value="recommended">Recommended</option><option value="all">All transcripts</option><option value="top25">Top 25</option><option value="top50">Top 50</option><option value="top100">Top 100</option></select></label><div class="actions"><button>Descargar Research Pack</button></div></form><iframe name="research-pack-download" hidden></iframe></div></details>
-<details class="card step" id="step2" {'open' if initial_open == 'step2' else ''}><summary>Paso 2 · Analizar con IA<span id="done2" class="step-done">{prior_completed}</span></summary><div class="step-body"><p><b>Procesador recomendado</b><br>Alex Hormozi — $100M</p><div class="actions"><button type="button" id="copy-prompt">Copiar instrucciones</button><a class="button secondary" href="https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m" target="_blank" rel="noopener" id="hormozi-gpt">Abrir Alex Hormozi GPT</a></div><p id="copy-status" class="muted"></p><ol><li>Adjunta el Research Pack descargado.</li><li>Pega las instrucciones copiadas.</li><li>Espera a que la IA genere el archivo <code>kurukin-channel-analysis.json</code>.</li><li>Descarga ese archivo.</li><li>Regresa a esta misma pestaña.</li></ol><p class="muted">También puedes usar otra IA compatible con el contrato Kurukin.</p></div></details>
-<details class="card step" id="step3" {'open' if initial_open == 'step3' else ''}><summary>Paso 3 · Importar inteligencia<span id="done3" class="step-done">{prior_completed}</span></summary><div class="step-body"><form id="intelligence-upload" action="/admin/research/channels/{channel_id}/intelligence/import/dry-run" method="post" enctype="multipart/form-data"><label class="dropzone">Arrastra aquí: <b>kurukin-channel-analysis.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="analysis-file" type="file" name="file" accept=".json,application/json"></label></form><div id="dry-run" aria-live="polite"></div><details><summary>Opciones avanzadas</summary><label>Pegar JSON manualmente<textarea id="pasted-json" style="min-height:150px"></textarea></label><div class="actions"><button type="button" id="dry-run-paste" class="secondary">Validar JSON pegado</button></div></details></div></details>
-<details class="card step" id="step4" {'open' if initial_open == 'step4' else ''}><summary>Paso 4 · Resultados{completed}</summary><div class="step-body"><div id="import-success"></div><div id="results">{result_html}</div><div class="actions"><button type="button" id="new-analysis" class="secondary">Generar nuevo análisis</button></div></div></details>
-<script>(function(){{const base='/admin/research/channels/{channel_id}/intelligence', mode=document.getElementById('pack-mode'), stateKey='kurukin-sci-{channel_id}', imported={'true' if latest else 'false'}, open=id=>{{document.getElementById(id).open=true;document.getElementById(id).scrollIntoView({{behavior:'smooth',block:'start'}})}}, done=(n,id)=>{{document.getElementById('done'+n).textContent=' ✓';localStorage.setItem(stateKey,String(n));open(id)}};const saved=Number(localStorage.getItem(stateKey)||0);if(!imported&&saved){{for(let n=1;n<=saved;n++)document.getElementById('done'+n).textContent=' ✓';open('step'+Math.min(saved+1,3))}}document.getElementById('research-pack-form').addEventListener('submit',()=>setTimeout(()=>done(1,'step2'),250));document.getElementById('copy-prompt').addEventListener('click',async()=>{{const r=await fetch(base+'/prompt.txt?mode='+encodeURIComponent(mode.value));const prompt=await r.text();await navigator.clipboard.writeText(prompt);document.getElementById('copy-status').textContent='Instrucciones copiadas.';done(2,'step3')}});async function dryRun(blob,name){{let f=new FormData();f.append('file',blob,name);const r=await fetch(base+'/import/dry-run',{{method:'POST',body:f}});const x=await r.json();const box=document.getElementById('dry-run');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+x.errors.map(e=>'<li>'+escapeHtml(e)+'</li>').join('')+'</ul></div>';return}}const s=x.summary;box.innerHTML='<div class="card"><h3>Dry Run</h3><div class="result-grid"><div class="stat"><b>'+escapeHtml(name)+'</b>Archivo</div><div class="stat"><b>✓ '+escapeHtml(s.schema)+'</b>Schema</div><div class="stat"><b>✓ @'+escapeHtml(s.channel)+'</b>Canal</div><div class="stat"><b>✓ hash coincide</b>Research Pack</div><div class="stat"><b>'+s.expected+'</b>Videos esperados</div><div class="stat"><b>'+s.received+'</b>Análisis recibidos</div><div class="stat"><b>'+s.missing+'</b>Missing</div><div class="stat"><b>'+s.unknown+'</b>Unknown</div><div class="stat"><b>'+s.duplicates+'</b>Duplicates</div><div class="stat"><b>'+s.invalid_evidence+'</b>Evidence inválida</div></div><p class="muted">Hooks: '+s.counts.hooks+' · Dolores: '+s.counts.pains+' · Deseos: '+s.counts.desires+' · Temas: '+s.counts.topics+' · Narrativas: '+s.counts.narratives+' · Repetition clusters: '+s.counts.repetition_clusters+' · CTAs: '+s.counts.ctas+' · Offers: '+s.counts.offers+' · Winning patterns: '+s.counts.winning_patterns+' · Opportunities: '+s.counts.opportunities+'</p><button id="confirm-import">Importar inteligencia</button></div>';document.getElementById('confirm-import').onclick=async()=>{{const body=new FormData();body.append('token',x.token);const ir=await fetch(base+'/import/confirm',{{method:'POST',body}});const ix=await ir.json();if(ix.ok){{localStorage.setItem(stateKey,'3');document.getElementById('import-success').innerHTML='<div class="card ok">Inteligencia importada. Resultados disponibles abajo.</div>';done(3,'step4');location.hash='step4';location.reload()}}}}}}function escapeHtml(v){{const d=document.createElement('div');d.textContent=v;return d.innerHTML}}document.getElementById('analysis-file').addEventListener('change',e=>{{const file=e.target.files[0];if(file)dryRun(file,file.name)}});document.getElementById('dry-run-paste').onclick=()=>{{const text=document.getElementById('pasted-json').value;dryRun(new Blob([text],{{type:'application/json'}}),'kurukin-channel-analysis.json')}};document.getElementById('new-analysis').onclick=()=>{{localStorage.removeItem(stateKey);open('step1');document.getElementById('research-pack-form').scrollIntoView({{behavior:'smooth'}})}}}})();</script>'''
+    if latest is None:
+        content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(data['channel'].username)}</a></p><h2>Structured Channel Intelligence</h2><div class="card"><p>Importa una inteligencia estructurada para desbloquear el playbook accionable y CREATE v1.</p><div class="actions"><a class="button" href="/admin/research/channels/{channel_id}/prompt">Preparar análisis estructurado</a></div></div>'''
+        return _layout('Channel Intelligence', content)
+    packs = list(db.scalars(select(PrivateContentPack).where(PrivateContentPack.channel_id == channel_id).order_by(PrivateContentPack.updated_at.desc())))
+    latest_pack = packs[0] if packs else None
+    pack_results = _content_pack_results(data, latest, latest_pack) if latest_pack else '<p class="muted">Aún no has importado contenido privado.</p>'
+    content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(data['channel'].username)}</a></p><h2>Channel Intelligence</h2>{_actionable_playbook(data, latest)}
+<details class="card"><summary><b>Ver análisis completo</b></summary><div class="step-body">{_channel_intelligence_results(data, latest, db)}</div></details>
+<details class="card step" id="create-flow"><summary><b>CREATE v1 · Crea desde estos patrones</b></summary><div class="step-body"><p class="muted">Este contexto y el contenido generado son privados. Nunca se añaden a Channel Intelligence global.</p><form id="private-context"><label>Business/product<br><textarea name="business" required maxlength="4000" style="min-height:80px"></textarea></label><label>Offer<br><textarea name="offer" required maxlength="4000" style="min-height:80px"></textarea></label><label>Target audience<br><textarea name="audience" required maxlength="4000" style="min-height:80px"></textarea></label><label>Goal<br><textarea name="goal" required maxlength="4000" style="min-height:80px"></textarea></label><label>Tone / style<br><input name="tone" required maxlength="4000"></label><label>Optional constraints<br><textarea name="constraints" maxlength="4000" style="min-height:80px"></textarea></label><div class="actions"><button id="open-hormozi" type="submit">Copiar instrucciones y abrir Alex Hormozi GPT</button></div></form><p id="create-status" class="muted"></p><ol><li>Pega las instrucciones en Alex Hormozi — $100M.</li><li>Descarga <code>kurukin-content-pack.json</code>.</li><li>Súbelo abajo para validar y confirmar.</li></ol><form id="content-pack-upload"><label class="dropzone">Sube <b>kurukin-content-pack.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="content-pack-file" type="file" accept=".json,application/json"></label></form><div id="content-pack-dry-run" aria-live="polite"></div></div></details>
+<section id="content-plan"><h2>YOUR CONTENT PLAN</h2><div id="content-pack-results">{pack_results}</div></section>
+<script>(function(){{const base='/admin/research/channels/{channel_id}/intelligence', form=document.getElementById('private-context'), create=document.getElementById('create-flow');document.getElementById('create-from-patterns').onclick=()=>{{create.open=true;create.scrollIntoView({{behavior:'smooth',block:'start'}})}};function contextData(){{return new FormData(form)}}form.addEventListener('submit',async e=>{{e.preventDefault();const r=await fetch(base+'/content-pack/prompt',{{method:'POST',body:contextData()}});if(!r.ok){{document.getElementById('create-status').textContent='Completa los campos privados requeridos.';return}}await navigator.clipboard.writeText(await r.text());window.open('https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m','_blank','noopener');document.getElementById('create-status').textContent='Instrucciones copiadas. Alex Hormozi GPT se abrió en una nueva pestaña.'}});async function dryRun(file){{const body=contextData();body.append('file',file,file.name);const r=await fetch(base+'/content-pack/import/dry-run',{{method:'POST',body}});const x=await r.json(), box=document.getElementById('content-pack-dry-run');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+x.errors.map(escapeHtml).map(v=>'<li>'+v+'</li>').join('')+'</ul></div>';return}}box.innerHTML='<div class="card"><h3>Dry Run</h3><p>✓ Schema · ✓ source channel · ✓ patterns · ✓ evidence IDs · ✓ required fields · ✓ duplicates</p><button id="confirm-content-pack">Confirmar Content Pack</button></div>';document.getElementById('confirm-content-pack').onclick=async()=>{{const body=new FormData();body.append('token',x.token);const confirmed=await fetch(base+'/content-pack/import/confirm',{{method:'POST',body}});const result=await confirmed.json();if(result.ok)location.reload()}}}}function escapeHtml(v){{const d=document.createElement('div');d.textContent=v;return d.innerHTML}}document.getElementById('content-pack-file').addEventListener('change',e=>{{if(e.target.files[0])dryRun(e.target.files[0])}})}})();</script>'''
     return _layout('Channel Intelligence', content)
 
 
@@ -799,6 +937,108 @@ def channel_intelligence_import_confirm(channel_id: uuid.UUID, token: str = Form
                                         intelligence=item))
     db.commit()
     return JSONResponse({'ok': True, 'analysis_id': str(analysis.id), 'action': 'updated' if changed else 'imported'})
+
+
+@router.post('/research/channels/{channel_id}/intelligence/content-pack/prompt', response_class=PlainTextResponse)
+def content_pack_prompt_text(channel_id: uuid.UUID, business: str = Form(...), offer: str = Form(...), audience: str = Form(...),
+                             goal: str = Form(...), tone: str = Form(...), constraints: str = Form(''),
+                             _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+    data = _channel_or_404(db, channel_id)
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis).where(ChannelIntelligenceAnalysis.channel_id == channel_id).order_by(
+        ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc()))
+    if analysis is None:
+        raise HTTPException(409, 'Import Channel Intelligence before creating content')
+    # This request only composes a prompt. It intentionally has no database write.
+    context = _private_context_from_form(business, offer, audience, goal, tone, constraints)
+    return PlainTextResponse(content_pack_prompt(data, analysis, context))
+
+
+def _content_pack_analysis_or_404(db: Session, channel_id: uuid.UUID) -> ChannelIntelligenceAnalysis:
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis).where(ChannelIntelligenceAnalysis.channel_id == channel_id).order_by(
+        ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc()))
+    if analysis is None:
+        raise HTTPException(409, 'Import Channel Intelligence before importing a Content Pack')
+    return analysis
+
+
+def _analysis_video_ids(db: Session, analysis: ChannelIntelligenceAnalysis) -> set[str]:
+    return set(db.scalars(select(Video.tiktok_id).join(ChannelVideoIntelligence, ChannelVideoIntelligence.video_id == Video.id).where(
+        ChannelVideoIntelligence.analysis_id == analysis.id
+    )))
+
+
+@router.post('/research/channels/{channel_id}/intelligence/content-pack/import/dry-run')
+async def content_pack_import_dry_run(channel_id: uuid.UUID, file: UploadFile = File(...), business: str = Form(...),
+                                      offer: str = Form(...), audience: str = Form(...), goal: str = Form(...), tone: str = Form(...),
+                                      constraints: str = Form(''), _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+    data = _channel_or_404(db, channel_id)
+    analysis = _content_pack_analysis_or_404(db, channel_id)
+    context = _private_context_from_form(business, offer, audience, goal, tone, constraints)
+    raw = await file.read(CHANNEL_INTELLIGENCE_IMPORT_MAX_BYTES + 1)
+    if len(raw) > CHANNEL_INTELLIGENCE_IMPORT_MAX_BYTES:
+        raise HTTPException(413, 'Content Pack file exceeds 5 MiB')
+    try:
+        value = json.loads(raw.decode('utf-8', errors='strict'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({'ok': False, 'errors': ['Upload one valid UTF-8 JSON object.']}, status_code=422)
+    errors = validate_content_pack(value, channel_id=str(channel_id), username=data['channel'].username,
+                                   known_patterns=set(_known_patterns(analysis)), known_video_ids=_analysis_video_ids(db, analysis))
+    if errors:
+        return JSONResponse({'ok': False, 'errors': errors}, status_code=422)
+    digest = canonical_json_sha256(value)
+    token = _store_pending_content_pack(PendingContentPackImport(channel_id, analysis.id, value, context, digest, time.time()))
+    return JSONResponse({'ok': True, 'token': token, 'summary': {'ideas': len(value['content_ideas']), 'scripts': len(value['scripts'])}})
+
+
+@router.post('/research/channels/{channel_id}/intelligence/content-pack/import/confirm')
+def content_pack_import_confirm(channel_id: uuid.UUID, token: str = Form(...), _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+    pending = _take_pending_content_pack(token, channel_id)
+    analysis = db.get(ChannelIntelligenceAnalysis, pending.analysis_id)
+    if analysis is None:
+        raise HTTPException(409, 'The Channel Intelligence source is no longer available')
+    data = _channel_or_404(db, channel_id)
+    errors = validate_content_pack(pending.payload, channel_id=str(channel_id), username=data['channel'].username,
+                                   known_patterns=set(_known_patterns(analysis)), known_video_ids=_analysis_video_ids(db, analysis))
+    if errors:
+        raise HTTPException(409, 'Source patterns changed since dry run; upload the Content Pack again')
+    existing = db.scalar(select(PrivateContentPack).where(PrivateContentPack.payload_sha256 == pending.payload_sha256))
+    if existing is not None:
+        return JSONResponse({'ok': True, 'already_imported': True, 'content_pack_id': str(existing.id)})
+    pack = PrivateContentPack(channel_id=channel_id, analysis_id=analysis.id, payload_sha256=pending.payload_sha256,
+                              private_context=pending.private_context, content_pack=pending.payload)
+    db.add(pack)
+    db.commit()
+    return JSONResponse({'ok': True, 'content_pack_id': str(pack.id), 'action': 'imported'})
+
+
+def _source_pattern_html(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis, names: list[str]) -> str:
+    records = {record['video_id']: record for record in _selection(data, analysis.selection_mode)}
+    patterns = _known_patterns(analysis)
+    cards = []
+    for name in names:
+        item = patterns.get(name)
+        if item is None:
+            continue
+        videos = []
+        for evidence in item.get('evidence', []):
+            for video_id in evidence.get('video_ids', []):
+                record = records.get(video_id)
+                if record:
+                    metric = f"{record.get('views', 0):,} views · outlier {float(record.get('outlier_score') or 0):.1f}"
+                    videos.append(f'<li><a href="{_e(record["url"])}" target="_blank" rel="noopener">{_e(_human_video_title(record))}</a><br><span class="muted">{_e(metric)}</span></li>')
+        cards.append(f'<div class="card"><b>{_e(name)}</b><p>{_e(item.get("description") or "")}</p><p><b>Why it worked</b><br>{_e(item.get("description") or "")}</p><ul>{"".join(videos) or "<li class=\"muted\">No video evidence.</li>"}</ul></div>')
+    return ''.join(cards) or '<p class="muted">No matching source pattern.</p>'
+
+
+def _content_pack_results(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis, pack: PrivateContentPack) -> str:
+    value = pack.content_pack
+    strategy = value['strategy']
+    def source_button(item: dict[str, Any], token: str) -> str:
+        names = item.get('source_patterns', [])
+        return f'<button type="button" class="secondary" onclick="document.getElementById(\'{token}\').open=true;document.getElementById(\'{token}\').scrollIntoView({{behavior:\'smooth\'}})">Ver patrón de origen</button><details id="{token}" class="card"><summary>Patrón de origen</summary>{_source_pattern_html(data, analysis, names)}</details>'
+    ideas = ''.join(f'<div class="card"><h3>{_e(item["title"])}</h3><p><b>Hook</b><br>{_e(item["hook"])}</p><p><b>Angle</b><br>{_e(item["angle"])}</p><p><b>Objective</b><br>{_e(item["objective"])}</p><p><b>CTA</b><br>{_e(item["cta"])}</p><div class="actions"><button type="button" class="secondary" onclick="navigator.clipboard.writeText({json.dumps(item["hook"] + "\\n\\n" + item["angle"] + "\\n\\nCTA: " + item["cta"])})">Copiar</button>{source_button(item, 'idea-source-' + str(index))}</div></div>' for index, item in enumerate(value['content_ideas']))
+    scripts = ''.join(f'<div class="card"><h3>{_e(item["title"])}</h3><p><b>Hook</b><br>{_e(item["hook"])}</p><p><b>Body</b><br>{_e(item["body"])}</p><p><b>CTA</b><br>{_e(item["cta"])}</p><p class="muted">Duration target: {_e(item["duration_target"])}</p><div class="actions"><button type="button" class="secondary" onclick="navigator.clipboard.writeText({json.dumps(item["hook"] + "\\n\\n" + item["body"] + "\\n\\n" + item["cta"])})">Copiar</button>{source_button(item, 'script-source-' + str(index))}</div></div>' for index, item in enumerate(value['scripts']))
+    return f'<div class="card"><h3>Strategy</h3><p><b>Positioning</b><br>{_e(strategy["recommended_positioning"])}</p><p><b>Content formula</b><br>{_e(strategy["content_formula"])}</p><p><b>CTA strategy</b><br>{_e(strategy["recommended_cta_strategy"])}</p><p><b>Content mix</b><br>{_e(strategy["recommended_content_mix"])}</p></div><h3>Content ideas</h3>{ideas}<h3>Scripts</h3>{scripts}'
 
 
 def _channel_intelligence_results(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis, db: Session) -> str:

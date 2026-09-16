@@ -251,6 +251,17 @@ class ChannelVideoIntelligence(Identity, Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
+class PrivateContentPack(Identity, Base):
+    """Private user context and generated content; never input to global SCI."""
+    __tablename__ = 'private_content_packs'
+    channel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channels.id'), index=True)
+    analysis_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channel_intelligence_analyses.id'), index=True)
+    payload_sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    private_context: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    content_pack: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
 class TranscriptionJob(Identity, Base):
     __tablename__ = 'transcription_jobs'
     __table_args__ = (
