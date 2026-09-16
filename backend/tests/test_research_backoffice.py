@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app import admin
 from app.config import get_settings
 from app.main import app
-from app.models import Analysis, Channel, Transcript, Video, VideoSnapshot
+from app.models import Analysis, Channel, ChannelIntelligenceAnalysis, ChannelVideoIntelligence, Transcript, Video, VideoSnapshot
 
 
 def make_channel(db, username='creator', nickname='Creator', author_id='stable-creator'):
@@ -148,12 +148,66 @@ def test_research_pack_selection_zip_and_partitioning(db, monkeypatch):
         manifest = json.loads(archive.read('manifest.json'))
         assert manifest['schema'] == 'kurukin-research-pack-v1'
         assert manifest['selection'] == {'mode': 'all', 'video_count': 3}
+        assert manifest['research_pack_hash'] == admin.research_pack_hash(data, 'all')
+        assert manifest['research_pack_hash'] in archive.read('README.md').decode()
         records = [json.loads(line) for line in archive.read('videos.jsonl').decode().splitlines()]
         assert len(records) == 3 and all(record['video_id'] for record in records)
         markdown = ''.join(archive.read(name).decode() for name in manifest['transcript_parts'])
         assert videos[3].tiktok_id in markdown
         assert 'Rabbit' not in archive.read('videos.jsonl').decode()
         assert 'audio_path' not in archive.read('videos.jsonl').decode()
+
+
+def _channel_analysis_payload(data, mode='all'):
+    records = admin._selection(data, mode)
+    return {
+        'schema': 'kurukin-channel-analysis-v1',
+        'research_pack_hash': admin.research_pack_hash(data, mode),
+        'video_intelligence': [{
+            'video_id': record['video_id'], 'summary': 'Concise summary', 'hook': 'A hook',
+            'topic': 'Topic', 'angle': 'Angle', 'target_audience': 'Audience',
+            'content_format': 'Explanation', 'narrative_structure': 'Hook then value',
+            'cta': 'Follow', 'performance_interpretation': 'Read in context',
+            'evidence': [{'claim': 'The video demonstrates the pattern.', 'video_ids': [record['video_id']]}],
+        } for record in records],
+        'channel_intelligence': {
+            'channel_summary': 'An evidence-led channel summary.', 'audience_profile': 'The likely audience.',
+            'content_pillars': [], 'winning_patterns': [], 'performance_insights': [],
+            'opportunities': [], 'caveats': ['Metrics are observations.'],
+        },
+    }
+
+
+def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(db):
+    channel, videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    payload = _channel_analysis_payload(data)
+    value, errors, mode, status = admin.dry_run_channel_intelligence_import(
+        db, channel.id, json.dumps(payload).encode())
+    assert value == payload and errors == [] and mode == 'all' and status == 'NEW'
+    assert 'every one of the 2 Research Pack videos' in admin.channel_intelligence_prompt(data)
+    assert 'kurukin-channel-analysis-v1' in admin.channel_intelligence_prompt(data)
+
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, payload, mode, admin.canonical_json_sha256(payload), 1e20))
+    response = admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    assert 'per-video records and one channel-level record' in response.body.decode()
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis))
+    assert analysis.research_pack_hash == payload['research_pack_hash']
+    assert db.scalar(select(ChannelVideoIntelligence).where(ChannelVideoIntelligence.analysis_id == analysis.id))
+
+    _value, errors, mode, status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(payload).encode())
+    assert errors == [] and mode == 'all' and status == 'ALREADY_IMPORTED'
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, payload, mode, admin.canonical_json_sha256(payload), 1e20))
+    response = admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    assert 'No records changed' in response.body.decode()
+
+    incomplete = {**payload, 'video_intelligence': payload['video_intelligence'][:-1]}
+    _value, errors, _mode, _status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(incomplete).encode())
+    assert any('missing Research Pack videos' in error for error in errors)
+    detail = admin.channel_intelligence_detail(channel.id, analysis.id, db=db)
+    assert videos[0].url.encode() in detail.body
 
 
 @pytest.mark.parametrize('preset', list(admin.PROMPT_PRESETS))

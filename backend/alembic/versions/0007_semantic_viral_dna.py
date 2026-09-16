@@ -1,7 +1,8 @@
 """Add the frozen v1 global Semantic Viral DNA contract.
 
-This revision has not been applied in production.  It intentionally replaces
-the pre-freeze draft in place, rather than creating 0008.
+This revision has not been applied in production.  It intentionally replaced
+the pre-freeze draft in place; the later, independent Channel Intelligence
+tables therefore begin at revision 0008.
 """
 from alembic import op
 import sqlalchemy as sa

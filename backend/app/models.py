@@ -223,6 +223,34 @@ class ViralDNA(Identity, Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
+class ChannelIntelligenceAnalysis(Identity, Base):
+    """One external structured analysis of one immutable Research Pack."""
+    __tablename__ = 'channel_intelligence_analyses'
+    __table_args__ = (
+        UniqueConstraint('channel_id', 'research_pack_hash', 'schema_version',
+                         name='uq_channel_intelligence_pack_schema'),
+    )
+    channel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channels.id'), index=True)
+    research_pack_hash: Mapped[str] = mapped_column(String(64), index=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    selection_mode: Mapped[str] = mapped_column(String(32))
+    payload_sha256: Mapped[str] = mapped_column(String(64))
+    channel_intelligence: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class ChannelVideoIntelligence(Identity, Base):
+    """The mandatory per-video half of a channel intelligence analysis."""
+    __tablename__ = 'channel_video_intelligence'
+    __table_args__ = (
+        UniqueConstraint('analysis_id', 'video_id', name='uq_channel_video_intelligence_analysis_video'),
+    )
+    analysis_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channel_intelligence_analyses.id'), index=True)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('videos.id'), index=True)
+    intelligence: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
 class TranscriptionJob(Identity, Base):
     __tablename__ = 'transcription_jobs'
     __table_args__ = (
