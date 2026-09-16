@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   api:
-    image: kurukin-tiktok-api:auto-curator-0818-edf25ce
+    image: kurukin-tiktok-api:research-backoffice-v1-77771f6
     networks:
       - general_network
       - traefik_public
