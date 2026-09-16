@@ -162,18 +162,18 @@ def _channel_analysis_payload(data, mode='all'):
     records = admin._selection(data, mode)
     return {
         'schema': 'kurukin-channel-analysis-v1',
-        'research_pack_hash': admin.research_pack_hash(data, mode),
-        'video_intelligence': [{
-            'video_id': record['video_id'], 'summary': 'Concise summary', 'hook': 'A hook',
-            'topic': 'Topic', 'angle': 'Angle', 'target_audience': 'Audience',
-            'content_format': 'Explanation', 'narrative_structure': 'Hook then value',
-            'cta': 'Follow', 'performance_interpretation': 'Read in context',
+        'prompt_version': 'kurukin-channel-analysis-prompt-v1', 'processor': 'Test processor',
+        'research_pack': {'hash': admin.research_pack_hash(data, mode), 'channel_username': data['channel'].username,
+                          'selection_mode': mode, 'video_count': len(records)},
+        'videos': [{
+            'video_id': record['video_id'], 'analysis_status': 'analyzed', 'summary': 'Concise summary',
+            'hooks': ['A hook'], 'pains': [], 'desires': [], 'topics': ['Topic'], 'narratives': [], 'ctas': ['Follow'], 'offers': [],
             'evidence': [{'claim': 'The video demonstrates the pattern.', 'video_ids': [record['video_id']]}],
         } for record in records],
         'channel_intelligence': {
-            'channel_summary': 'An evidence-led channel summary.', 'audience_profile': 'The likely audience.',
-            'content_pillars': [], 'winning_patterns': [], 'performance_insights': [],
-            'opportunities': [], 'caveats': ['Metrics are observations.'],
+            'summary': 'An evidence-led channel summary.', 'audience': 'The likely audience.',
+            'pains': [], 'desires': [], 'hooks': [], 'topics': [], 'winning_patterns': [], 'narratives': [],
+            'repetition_clusters': [], 'ctas': [], 'offers': [], 'opportunities': [], 'caveats': ['Metrics are observations.'],
         },
     }
 
@@ -185,15 +185,17 @@ def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(
     value, errors, mode, status = admin.dry_run_channel_intelligence_import(
         db, channel.id, json.dumps(payload).encode())
     assert value == payload and errors == [] and mode == 'all' and status == 'NEW'
-    assert 'every one of the 2 Research Pack videos' in admin.channel_intelligence_prompt(data)
-    assert 'kurukin-channel-analysis-v1' in admin.channel_intelligence_prompt(data)
+    prompt = admin.channel_intelligence_prompt(data)
+    assert 'videos[]` MUST contain exactly N video objects' in prompt
+    assert 'kurukin-channel-analysis.json' in prompt
+    assert 'video_intelligence' in prompt and 'performance_interpretation' in prompt
 
     token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
         channel.id, payload, mode, admin.canonical_json_sha256(payload), 1e20))
     response = admin.channel_intelligence_import_confirm(channel.id, token, db=db)
-    assert 'per-video records and one channel-level record' in response.body.decode()
+    assert response.body and b'"ok":true' in response.body
     analysis = db.scalar(select(ChannelIntelligenceAnalysis))
-    assert analysis.research_pack_hash == payload['research_pack_hash']
+    assert analysis.research_pack_hash == payload['research_pack']['hash']
     assert db.scalar(select(ChannelVideoIntelligence).where(ChannelVideoIntelligence.analysis_id == analysis.id))
 
     _value, errors, mode, status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(payload).encode())
@@ -201,13 +203,39 @@ def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(
     token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
         channel.id, payload, mode, admin.canonical_json_sha256(payload), 1e20))
     response = admin.channel_intelligence_import_confirm(channel.id, token, db=db)
-    assert 'No records changed' in response.body.decode()
+    assert b'"already_imported":true' in response.body
 
-    incomplete = {**payload, 'video_intelligence': payload['video_intelligence'][:-1]}
+    incomplete = {**payload, 'videos': payload['videos'][:-1]}
     _value, errors, _mode, _status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(incomplete).encode())
     assert any('missing Research Pack videos' in error for error in errors)
     detail = admin.channel_intelligence_detail(channel.id, analysis.id, db=db)
     assert videos[0].url.encode() in detail.body
+
+
+def test_single_page_inline_workflow_and_schema_drift(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
+    for step in ('Paso 1 · Preparar investigación', 'Paso 2 · Analizar con IA', 'Paso 3 · Importar inteligencia', 'Paso 4 · Resultados'):
+        assert step in page
+    assert 'target="research-pack-download"' in page
+    assert 'fetch(base+\'/import/dry-run\'' in page
+    assert 'https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m' in page
+    assert 'target="_blank"' in page and 'Pegar JSON manualmente' in page
+    payload = _channel_analysis_payload(data)
+    payload['video_intelligence'] = payload.pop('videos')
+    _value, errors, _mode, _status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(payload).encode())
+    assert any("se recibió 'video_intelligence'" in error.lower() for error in errors)
+
+
+def test_inline_dry_run_summary_and_human_video_label(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    payload = _channel_analysis_payload(data)
+    summary = admin._dry_run_summary(payload, data, admin._selection(data, 'all'))
+    assert summary['expected'] == summary['received'] == 2
+    assert summary['missing'] == summary['unknown'] == summary['duplicates'] == 0
+    assert admin._human_video_title(admin._selection(data, 'all')[0]).startswith('Caption')
 
 
 def test_research_ux_versions_structured_primary_and_demotes_legacy_prompt(db, monkeypatch):
@@ -232,8 +260,8 @@ def test_research_ux_versions_structured_primary_and_demotes_legacy_prompt(db, m
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'INTERNAL RESEARCH BACKOFFICE v1.2 · SCI v1 · Build 193a52f' in page
-    assert 'Preparar investigación' in intelligence and 'Importar inteligencia' in intelligence
+        assert 'INTERNAL RESEARCH BACKOFFICE v1.3 · SCI v1 · Build 193a52f' in page
+    assert 'Paso 1 · Preparar investigación' in intelligence and 'Paso 4 · Resultados' in intelligence
 
     monkeypatch.delenv('KURUKIN_BUILD_SHA')
     get_settings.cache_clear()

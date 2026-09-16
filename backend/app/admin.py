@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import get_db
 from .channel_intelligence_contract import (
-    CHANNEL_ANALYSIS_JSON_SCHEMA, CHANNEL_INTELLIGENCE_SCHEMA_VERSION,
+    CHANNEL_ANALYSIS_JSON_SCHEMA, CHANNEL_INTELLIGENCE_PROMPT_VERSION, CHANNEL_INTELLIGENCE_SCHEMA_VERSION,
     canonical_json_sha256, validate_channel_analysis,
 )
 from .models import (
@@ -106,8 +106,8 @@ def _layout(title: str, content: str) -> HTMLResponse:
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_e(title)} · Kurukin</title><style>
 :root{{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fa}}
-body{{margin:0}}main{{max-width:1280px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:24px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:10px;padding:18px;margin:14px 0}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:3px 7px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY{{background:#dcfce7;color:#166534}}.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:7px;padding:8px 12px;cursor:pointer;display:inline-block}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:8px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:340px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin Internal Research</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.2 · SCI v1 · Build {_e(_build_marker())}</span></header>{content}</main></body></html>''')
+body{{margin:0}}main{{max-width:1280px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:24px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:10px;padding:18px;margin:14px 0}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:3px 7px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY{{background:#dcfce7;color:#166534}}.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:7px;padding:10px 14px;cursor:pointer;display:inline-block;min-height:44px}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:10px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:340px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}.step{{padding:0;overflow:hidden}}.step>summary{{cursor:pointer;list-style:none;padding:17px;font-size:1.05rem;min-height:24px}}.step>summary::-webkit-details-marker{{display:none}}.step-body{{padding:0 17px 17px}}.step-done{{color:#166534}}.dropzone{{display:block;border:2px dashed #8ba3bd;border-radius:9px;padding:28px 16px;text-align:center;background:#f8fafc;cursor:pointer}}.dropzone input{{display:none}}.error-box{{background:#fee2e2;color:#7f1d1d;padding:12px;border-radius:7px}}.result-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}}.video-card{{border-left:4px solid #1659b7}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}.actions{{display:grid}}.actions>*{{width:100%;text-align:center}}}}
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin Internal Research</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.3 · SCI v1 · Build {_e(_build_marker())}</span></header>{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -573,17 +573,46 @@ def channel_intelligence_prompt(data: dict[str, Any], mode: str = 'all') -> str:
     schema = json.dumps(CHANNEL_ANALYSIS_JSON_SCHEMA, ensure_ascii=False, indent=2)
     return f'''# Kurukin Structured Channel Intelligence v1
 
-Analyze the supplied Kurukin Research Pack only. Return exactly one JSON object, with no Markdown fence, commentary, or omitted fields.
+YOUR TASK IS NOT TO WRITE A REPORT IN CHAT.
 
-This is a contractual import format. Set `schema` to `{CHANNEL_INTELLIGENCE_SCHEMA_VERSION}` and set `research_pack_hash` exactly to `{pack_hash}`. Produce one `video_intelligence` object for **every one of the {len(records)} Research Pack videos**, exactly once. Every `evidence.video_ids` value must be an exact `video_id` from that same Research Pack. Do not cite a video outside it.
+YOUR TASK IS TO CREATE A FILE.
 
-Evidence rules:
-- Treat captions, transcripts, and creator claims as evidence with possible errors; do not turn them into verified facts.
-- Interpret views, engagement, and outlier score in context; outlier score is relative performance, not viral probability.
-- Do not invent metrics, transcripts, intent, examples, or cross-video evidence.
-- Use clear, concise claims and tie patterns/opportunities to the supplied videos.
+Required output filename: `kurukin-channel-analysis.json`
 
-Return JSON conforming exactly to this schema:
+The file must be valid JSON matching EXACTLY the JSON Schema contained below. Do NOT write Markdown. Do NOT paste the complete JSON as the normal chat response. Do NOT rename schema fields.
+
+The root structure MUST use exactly: `schema`, `prompt_version`, `processor`, `research_pack`, `videos`, `channel_intelligence`.
+
+Explicitly prohibited aliases: `video_intelligence`, `video_analysis`, `items`, `results`.
+
+Set `schema` to `{CHANNEL_INTELLIGENCE_SCHEMA_VERSION}`, `prompt_version` to `{CHANNEL_INTELLIGENCE_PROMPT_VERSION}`, and `research_pack.hash` exactly to `{pack_hash}`. Set `research_pack.channel_username` and `research_pack.selection_mode` from this pack, and `research_pack.video_count` to {len(records)}.
+
+If the Research Pack contains N videos, `videos[]` MUST contain exactly N video objects. Every exported `video_id` appears exactly once: no missing videos, unknown videos, or duplicates. Every `evidence.video_ids` reference must be an exact `video_id` from this Research Pack.
+
+For a low-information video use `analysis_status = insufficient_content`; do not fabricate semantic conclusions. Canonical metrics belong to Kurukin. Per-video intelligence MUST NOT return or restate `views`, `likes`, `comments`, `shares`, `favorites`, `engagement_rate`, or `outlier_score`. Do NOT create `performance_interpretation` or any field that duplicates metrics.
+
+Every meaningful channel-level insight must reference evidence video IDs. Creator claims are not externally verified facts. Transcripts may contain ASR/manual errors.
+
+Short canonical root example (structural illustration only; the supplied JSON Schema is authoritative):
+{{
+  "schema": "kurukin-channel-analysis-v1",
+  "prompt_version": "kurukin-channel-analysis-prompt-v1",
+  "processor": "...",
+  "research_pack": {{"hash": "...", "channel_username": "...", "selection_mode": "...", "video_count": {len(records)}}},
+  "videos": [{{"video_id": "...", "analysis_status": "analyzed", "evidence": []}}],
+  "channel_intelligence": {{...}}
+}}
+
+FINAL OUTPUT REQUIREMENT:
+
+Create and attach/downloadable file: `kurukin-channel-analysis.json`
+
+Do not paste the complete JSON into the conversation.
+
+If the AI environment truly cannot create a downloadable file, respond exactly:
+FILE_GENERATION_UNAVAILABLE
+
+JSON Schema (authoritative):
 
 {schema}
 '''
@@ -600,11 +629,17 @@ def dry_run_channel_intelligence_import(db: Session, channel_id: uuid.UUID, raw:
     if not isinstance(value, dict):
         return None, ['The upload must be one JSON object.'], None, None
     data = _channel_or_404(db, channel_id)
-    pack_hash = value.get('research_pack_hash')
+    research_pack = value.get('research_pack')
+    pack_hash = research_pack.get('hash') if isinstance(research_pack, dict) else None
     resolved = _research_pack_by_hash(data, pack_hash) if isinstance(pack_hash, str) else None
     if resolved is None:
         return value, ['research_pack_hash does not match a current non-empty Research Pack for this channel. Re-export, re-analyze, and upload again.'], None, None
     mode, records = resolved
+    if isinstance(research_pack, dict):
+        if research_pack.get('channel_username') != data['channel'].username:
+            return value, [f"research_pack.channel_username must equal @{data['channel'].username}."], None, None
+        if research_pack.get('selection_mode') != mode:
+            return value, ['research_pack.selection_mode does not match the Research Pack hash.'], None, None
     errors = validate_channel_analysis(value, {record['video_id'] for record in records})
     payload_sha256 = canonical_json_sha256(value)
     existing = db.scalar(select(ChannelIntelligenceAnalysis).where(
@@ -612,14 +647,25 @@ def dry_run_channel_intelligence_import(db: Session, channel_id: uuid.UUID, raw:
         ChannelIntelligenceAnalysis.research_pack_hash == pack_hash,
         ChannelIntelligenceAnalysis.schema_version == CHANNEL_INTELLIGENCE_SCHEMA_VERSION,
     ))
+    if existing is not None and existing.payload_sha256 != payload_sha256:
+        errors.append('This Research Pack already has a historical analysis. Generate a new Research Pack before importing another analysis; existing history is never overwritten.')
     status = ('ALREADY_IMPORTED' if existing is not None and existing.payload_sha256 == payload_sha256 else
-              'UPDATE_EXISTING' if existing is not None else 'NEW')
+              'PACK_ALREADY_IMPORTED' if existing is not None else 'NEW')
     return value, errors, mode, status
 
 
+def _human_video_title(record: dict[str, Any]) -> str:
+    """Never make the opaque TikTok ID the primary evidence label."""
+    for candidate in (record.get('caption'), record.get('transcript')):
+        if isinstance(candidate, str):
+            meaningful = candidate.strip().split('.')[0].strip()
+            if meaningful:
+                return meaningful[:140]
+    return f"Publicado {record.get('published_at') or 'sin fecha'}"
+
+
 def _video_label(record: dict[str, Any]) -> str:
-    published = record.get('published_at') or 'unknown date'
-    return f"Video {record['video_id']} · {published} · {record.get('views') if record.get('views') is not None else '—'} views"
+    return _human_video_title(record)
 
 
 def _evidence_html(entries: list[dict[str, Any]], records_by_tiktok_id: dict[str, dict[str, Any]]) -> str:
@@ -641,10 +687,13 @@ def _evidence_html(entries: list[dict[str, Any]], records_by_tiktok_id: dict[str
 def _channel_analysis_items(value: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     """Flatten named channel-level evidence sections for safe human rendering."""
     result: list[tuple[str, dict[str, Any]]] = []
-    for section in ('content_pillars', 'winning_patterns', 'performance_insights', 'opportunities'):
+    labels = {'pains': 'Dolores', 'desires': 'Deseos', 'hooks': 'Hooks', 'topics': 'Temas',
+              'winning_patterns': 'Patrones ganadores', 'narratives': 'Narrativas',
+              'repetition_clusters': 'Repetición', 'ctas': 'CTAs', 'offers': 'Ofertas', 'opportunities': 'Oportunidades'}
+    for section, label in labels.items():
         for item in value.get(section, []):
             if isinstance(item, dict):
-                result.append((section.replace('_', ' ').title(), item))
+                result.append((label, item))
     return result
 
 
@@ -654,16 +703,21 @@ def channel_intelligence_page(channel_id: uuid.UUID, _auth: None = Depends(requi
     analyses = list(db.scalars(select(ChannelIntelligenceAnalysis).where(
         ChannelIntelligenceAnalysis.channel_id == channel_id
     ).order_by(ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc())))
-    cards = ''.join(
-        f'<tr><td><code>{_e(item.research_pack_hash)}</code></td><td>{_e(item.selection_mode)}</td>'
-        f'<td>{_when(item.updated_at)}</td><td><a href="/admin/research/channels/{channel_id}/intelligence/{item.id}">View</a></td></tr>'
-        for item in analyses
-    ) or '<tr><td colspan="4" class="muted">No imported Channel Intelligence yet.</td></tr>'
+    latest = analyses[0] if analyses else None
+    recommended = _selection(data, 'recommended')
+    recommended_hash = research_pack_hash(data, 'recommended') if recommended else None
+    initial_open = 'step4' if latest else 'step1'
+    short_hash = recommended_hash[:12] if recommended_hash else 'sin Research Pack disponible'
+    result_html = _channel_intelligence_results(data, latest, db) if latest else '<p class="muted">Importa un archivo válido para ver los resultados aquí.</p>'
+    completed = ' <span class="step-done">✓</span>' if latest else ''
+    prior_completed = ' ✓' if latest else ''
     content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(data['channel'].username)}</a></p><h2>Structured Channel Intelligence</h2>
-<p class="muted">Structured, externally generated analysis is accepted only when it names the exact current Research Pack hash and includes every video in that pack.</p>
-<div class="card"><ol><li><b>Preparar investigación</b> — <a href="/admin/research/channels/{channel_id}/export">Export Research Pack</a></li><li><b>Analizar con IA</b> — <a href="/admin/research/channels/{channel_id}/intelligence/prompt">Generate contractual prompt</a></li><li><b>Importar inteligencia</b> — upload the returned JSON below.</li><li><b>Resultados</b> — review imported analyses below.</li></ol></div>
-<div class="card"><h2>Import analysis</h2><form method="post" action="/admin/research/channels/{channel_id}/intelligence/import/dry-run" enctype="multipart/form-data"><label>kurukin-channel-analysis-v1.json<br><input required type="file" name="file" accept=".json,application/json"></label><div class="actions"><button>Upload and dry run</button></div></form><p class="muted">The dry run validates the frozen schema, Research Pack hash, every per-video record, and evidence references. Nothing is stored until confirmation.</p></div>
-<h2>Imported analyses</h2><div class="card table-wrap"><table><thead><tr><th>Research Pack hash</th><th>Selection</th><th>Updated</th><th></th></tr></thead><tbody>{cards}</tbody></table></div>'''
+<p class="muted">Un flujo único: prepara el pack, analízalo fuera de Kurukin, impórtalo y revisa el resultado sin volver atrás.</p>
+<details class="card step" id="step1" {'open' if initial_open == 'step1' else ''}><summary>Paso 1 · Preparar investigación<span id="done1" class="step-done">{prior_completed}</span></summary><div class="step-body"><p><b>@{_e(data['channel'].username)}</b> · {_e(data['channel'].nickname or '—')}</p><div class="result-grid"><div class="stat"><b>{data['priority_count']}</b>priority pool</div><div class="stat"><b>{data['priority_transcripts']}/{data['priority_count']}</b>cobertura de transcripciones</div><div class="stat"><b>Recommended</b>selección</div><div class="stat"><b><code>{_e(short_hash)}</code></b>Research Pack hash</div></div><form id="research-pack-form" method="get" action="/admin/research/channels/{channel_id}/export.zip" target="research-pack-download"><label>Modo de selección <select id="pack-mode" name="mode"><option value="recommended">Recommended</option><option value="all">All transcripts</option><option value="top25">Top 25</option><option value="top50">Top 50</option><option value="top100">Top 100</option></select></label><div class="actions"><button>Descargar Research Pack</button></div></form><iframe name="research-pack-download" hidden></iframe></div></details>
+<details class="card step" id="step2" {'open' if initial_open == 'step2' else ''}><summary>Paso 2 · Analizar con IA<span id="done2" class="step-done">{prior_completed}</span></summary><div class="step-body"><p><b>Procesador recomendado</b><br>Alex Hormozi — $100M</p><div class="actions"><button type="button" id="copy-prompt">Copiar instrucciones</button><a class="button secondary" href="https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m" target="_blank" rel="noopener" id="hormozi-gpt">Abrir Alex Hormozi GPT</a></div><p id="copy-status" class="muted"></p><ol><li>Adjunta el Research Pack descargado.</li><li>Pega las instrucciones copiadas.</li><li>Espera a que la IA genere el archivo <code>kurukin-channel-analysis.json</code>.</li><li>Descarga ese archivo.</li><li>Regresa a esta misma pestaña.</li></ol><p class="muted">También puedes usar otra IA compatible con el contrato Kurukin.</p></div></details>
+<details class="card step" id="step3" {'open' if initial_open == 'step3' else ''}><summary>Paso 3 · Importar inteligencia<span id="done3" class="step-done">{prior_completed}</span></summary><div class="step-body"><form id="intelligence-upload" action="/admin/research/channels/{channel_id}/intelligence/import/dry-run" method="post" enctype="multipart/form-data"><label class="dropzone">Arrastra aquí: <b>kurukin-channel-analysis.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="analysis-file" type="file" name="file" accept=".json,application/json"></label></form><div id="dry-run" aria-live="polite"></div><details><summary>Opciones avanzadas</summary><label>Pegar JSON manualmente<textarea id="pasted-json" style="min-height:150px"></textarea></label><div class="actions"><button type="button" id="dry-run-paste" class="secondary">Validar JSON pegado</button></div></details></div></details>
+<details class="card step" id="step4" {'open' if initial_open == 'step4' else ''}><summary>Paso 4 · Resultados{completed}</summary><div class="step-body"><div id="import-success"></div><div id="results">{result_html}</div><div class="actions"><button type="button" id="new-analysis" class="secondary">Generar nuevo análisis</button></div></div></details>
+<script>(function(){{const base='/admin/research/channels/{channel_id}/intelligence', mode=document.getElementById('pack-mode'), open=id=>{{document.getElementById(id).open=true;document.getElementById(id).scrollIntoView({{behavior:'smooth',block:'start'}})}}, done=(n,id)=>{{document.getElementById('done'+n).textContent=' ✓';open(id)}};document.getElementById('research-pack-form').addEventListener('submit',()=>setTimeout(()=>done(1,'step2'),250));document.getElementById('copy-prompt').addEventListener('click',async()=>{{const r=await fetch(base+'/prompt.txt?mode='+encodeURIComponent(mode.value));const prompt=await r.text();await navigator.clipboard.writeText(prompt);document.getElementById('copy-status').textContent='Instrucciones copiadas.';done(2,'step3')}});async function dryRun(blob,name){{let f=new FormData();f.append('file',blob,name);const r=await fetch(base+'/import/dry-run',{{method:'POST',body:f}});const x=await r.json();const box=document.getElementById('dry-run');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+x.errors.map(e=>'<li>'+escapeHtml(e)+'</li>').join('')+'</ul></div>';return}}const s=x.summary;box.innerHTML='<div class="card"><h3>Dry Run</h3><div class="result-grid"><div class="stat"><b>'+escapeHtml(name)+'</b>Archivo</div><div class="stat"><b>✓ '+escapeHtml(s.schema)+'</b>Schema</div><div class="stat"><b>✓ @'+escapeHtml(s.channel)+'</b>Canal</div><div class="stat"><b>✓ hash coincide</b>Research Pack</div><div class="stat"><b>'+s.expected+'</b>Videos esperados</div><div class="stat"><b>'+s.received+'</b>Análisis recibidos</div><div class="stat"><b>'+s.missing+'</b>Missing</div><div class="stat"><b>'+s.unknown+'</b>Unknown</div><div class="stat"><b>'+s.duplicates+'</b>Duplicates</div><div class="stat"><b>'+s.invalid_evidence+'</b>Evidence inválida</div></div><p class="muted">Hooks: '+s.counts.hooks+' · Dolores: '+s.counts.pains+' · Deseos: '+s.counts.desires+' · Temas: '+s.counts.topics+' · Narrativas: '+s.counts.narratives+' · Repetition clusters: '+s.counts.repetition_clusters+' · CTAs: '+s.counts.ctas+' · Offers: '+s.counts.offers+' · Winning patterns: '+s.counts.winning_patterns+' · Opportunities: '+s.counts.opportunities+'</p><button id="confirm-import">Importar inteligencia</button></div>';document.getElementById('confirm-import').onclick=async()=>{{const body=new FormData();body.append('token',x.token);const ir=await fetch(base+'/import/confirm',{{method:'POST',body}});const ix=await ir.json();if(ix.ok){{document.getElementById('import-success').innerHTML='<div class="card ok">Inteligencia importada. Resultados disponibles abajo.</div>';done(3,'step4');location.hash='step4';location.reload()}}}}}}function escapeHtml(v){{const d=document.createElement('div');d.textContent=v;return d.innerHTML}}document.getElementById('analysis-file').addEventListener('change',e=>{{const file=e.target.files[0];if(file)dryRun(file,file.name)}});document.getElementById('dry-run-paste').onclick=()=>{{const text=document.getElementById('pasted-json').value;dryRun(new Blob([text],{{type:'application/json'}}),'kurukin-channel-analysis.json')}};document.getElementById('new-analysis').onclick=()=>{{open('step1');document.getElementById('research-pack-form').scrollIntoView({{behavior:'smooth'}})}}}})();</script>'''
     return _layout('Channel Intelligence', content)
 
 
@@ -675,24 +729,37 @@ def channel_intelligence_prompt_page(channel_id: uuid.UUID, mode: str = 'all', _
     return _layout('Channel Intelligence prompt', content)
 
 
-@router.post('/research/channels/{channel_id}/intelligence/import/dry-run', response_class=HTMLResponse)
+@router.get('/research/channels/{channel_id}/intelligence/prompt.txt', response_class=PlainTextResponse)
+def channel_intelligence_prompt_text(channel_id: uuid.UUID, mode: str = 'recommended', _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+    return PlainTextResponse(channel_intelligence_prompt(_channel_or_404(db, channel_id), mode))
+
+
+def _dry_run_summary(value: dict[str, Any], data: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
+    videos = value['videos']; expected = {record['video_id'] for record in records}
+    received = [item.get('video_id') for item in videos if isinstance(item, dict)]
+    channel_value = value['channel_intelligence']
+    counts = {key: len(channel_value.get(key, [])) for key in ('hooks', 'pains', 'desires', 'topics', 'narratives', 'repetition_clusters', 'ctas', 'offers', 'winning_patterns', 'opportunities')}
+    evidence = [video_id for item in videos for entry in item.get('evidence', []) for video_id in entry.get('video_ids', [])]
+    return {'schema': value['schema'], 'channel': data['channel'].username, 'expected': len(expected), 'received': len(videos),
+            'missing': len(expected - set(received)), 'unknown': len(set(received) - expected), 'duplicates': len(received) - len(set(received)),
+            'invalid_evidence': len(set(evidence) - expected), 'counts': counts}
+
+
+@router.post('/research/channels/{channel_id}/intelligence/import/dry-run')
 async def channel_intelligence_import_dry_run(channel_id: uuid.UUID, file: UploadFile = File(...), _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
-    _channel_or_404(db, channel_id)
+    data = _channel_or_404(db, channel_id)
     value, errors, mode, status = dry_run_channel_intelligence_import(
         db, channel_id, await file.read(CHANNEL_INTELLIGENCE_IMPORT_MAX_BYTES + 1)
     )
     if value is None or errors:
-        error_rows = ''.join(f'<li>{_e(error)}</li>' for error in errors)
-        return _layout('Channel Intelligence dry run', f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Channel Intelligence</a></p><h2>Dry run rejected</h2><div class="card bad"><ul>{error_rows}</ul><p>No data was stored.</p></div>''')
+        return JSONResponse({'ok': False, 'errors': errors or ['Upload one valid JSON object.']}, status_code=422)
     assert mode is not None and status is not None
     token = _store_pending_channel_intelligence(PendingChannelIntelligenceImport(
         channel_id, value, mode, canonical_json_sha256(value), time.time()))
-    word = 'already imported (confirmation is a no-op)' if status == 'ALREADY_IMPORTED' else ('will update the existing analysis' if status == 'UPDATE_EXISTING' else 'will create a new analysis')
-    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Channel Intelligence</a></p><h2>Channel Intelligence dry run</h2><div class="card"><p><b>{len(value['video_intelligence'])}</b> per-video records validated against the <b>{_e(mode)}</b> Research Pack.</p><p>Hash: <code>{_e(value['research_pack_hash'])}</code></p><p class="muted">This import {word}. No data has been stored yet.</p><form method="post" action="/admin/research/channels/{channel_id}/intelligence/import/confirm"><input type="hidden" name="token" value="{_e(token)}"><button>Confirm import</button></form></div>'''
-    return _layout('Channel Intelligence dry run', content)
+    return JSONResponse({'ok': True, 'token': token, 'status': status, 'summary': _dry_run_summary(value, data, _selection(data, mode))})
 
 
-@router.post('/research/channels/{channel_id}/intelligence/import/confirm', response_class=HTMLResponse)
+@router.post('/research/channels/{channel_id}/intelligence/import/confirm')
 def channel_intelligence_import_confirm(channel_id: uuid.UUID, token: str = Form(...), _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     pending = _take_pending_channel_intelligence(token, channel_id)
     # Re-validate the live corpus: a transcript/import change between preview
@@ -701,14 +768,14 @@ def channel_intelligence_import_confirm(channel_id: uuid.UUID, token: str = Form
         db, channel_id, json.dumps(pending.payload, ensure_ascii=False).encode('utf-8'))
     if errors or mode != pending.selection_mode:
         raise HTTPException(409, 'Research Pack changed since dry run; export and analyze it again')
-    pack_hash = pending.payload['research_pack_hash']
+    pack_hash = pending.payload['research_pack']['hash']
     analysis = db.scalar(select(ChannelIntelligenceAnalysis).where(
         ChannelIntelligenceAnalysis.channel_id == channel_id,
         ChannelIntelligenceAnalysis.research_pack_hash == pack_hash,
         ChannelIntelligenceAnalysis.schema_version == CHANNEL_INTELLIGENCE_SCHEMA_VERSION,
     ).with_for_update())
     if analysis is not None and analysis.payload_sha256 == pending.payload_sha256:
-        return _layout('Channel Intelligence imported', f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Channel Intelligence</a></p><h2>Already imported</h2><div class="card"><p>This exact analysis was already persisted. No records changed.</p></div>''')
+        return JSONResponse({'ok': True, 'already_imported': True, 'analysis_id': str(analysis.id)})
     changed = analysis is not None
     if analysis is None:
         analysis = ChannelIntelligenceAnalysis(channel_id=channel_id, research_pack_hash=pack_hash,
@@ -721,18 +788,42 @@ def channel_intelligence_import_confirm(channel_id: uuid.UUID, token: str = Form
         analysis.channel_intelligence = pending.payload['channel_intelligence']
         db.execute(delete(ChannelVideoIntelligence).where(ChannelVideoIntelligence.analysis_id == analysis.id))
         db.flush()
-    ids = [item['video_id'] for item in pending.payload['video_intelligence']]
+    ids = [item['video_id'] for item in pending.payload['videos']]
     videos = {video.tiktok_id: video for video in db.scalars(select(Video).where(
         Video.channel_id == channel_id, Video.tiktok_id.in_(ids)
     ))}
     if set(videos) != set(ids):
         raise HTTPException(409, 'Research Pack videos changed since dry run; export and analyze it again')
-    for item in pending.payload['video_intelligence']:
+    for item in pending.payload['videos']:
         db.add(ChannelVideoIntelligence(analysis_id=analysis.id, video_id=videos[item['video_id']].id,
                                         intelligence=item))
     db.commit()
-    action = 'updated' if changed else 'imported'
-    return _layout('Channel Intelligence imported', f'''<p><a href="/admin/research/channels/{channel_id}/intelligence/{analysis.id}">View Channel Intelligence</a></p><h2>Channel Intelligence {action}</h2><div class="card"><p><b>{len(ids)}</b> per-video records and one channel-level record were persisted.</p><p class="muted">The Research Pack hash remains the evidence identity: <code>{_e(pack_hash)}</code></p></div>''')
+    return JSONResponse({'ok': True, 'analysis_id': str(analysis.id), 'action': 'updated' if changed else 'imported'})
+
+
+def _channel_intelligence_results(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis, db: Session) -> str:
+    """Safe embedded result renderer shared by the primary page and legacy detail URL."""
+    records = _selection(data, analysis.selection_mode)
+    by_tiktok_id = {record['video_id']: record for record in records}
+    channel_value = analysis.channel_intelligence
+    sections = ''.join(
+        f'<h3>{_e(section)}</h3><div class="card"><h4>{_e(item.get("name") or "Insight")}</h4><p>{_e(item.get("description") or "")}</p>{_evidence_html(item.get("evidence", []), by_tiktok_id)}</div>'
+        for section, item in _channel_analysis_items(channel_value)
+    ) or '<p class="muted">No channel-level patterns were supplied.</p>'
+    children = db.execute(select(ChannelVideoIntelligence, Video).join(Video, Video.id == ChannelVideoIntelligence.video_id).where(
+        ChannelVideoIntelligence.analysis_id == analysis.id
+    ).order_by(Video.published_at.desc(), Video.tiktok_id)).all()
+    summary = channel_value.get('summary', channel_value.get('channel_summary', '—'))
+    audience = channel_value.get('audience', channel_value.get('audience_profile', '—'))
+    caveats = ''.join(f'<li>{_e(item)}</li>' for item in channel_value.get('caveats', [])) or '<li class="muted">None supplied.</li>'
+    video_cards = []
+    for child, video in children:
+        record = by_tiktok_id.get(video.tiktok_id, {'caption': None, 'transcript': None, 'published_at': _iso(video.published_at), 'url': video.url, 'views': None, 'outlier_score': None, 'engagement_rate': None, 'shares': None})
+        item = child.intelligence
+        insight = item.get('summary') or ('Contenido insuficiente para una conclusión semántica.' if item.get('analysis_status') == 'insufficient_content' else '—')
+        metrics = ' · '.join(f'{label}: {_e(record.get(key) if record.get(key) is not None else "—")}' for label, key in (('views', 'views'), ('outlier', 'outlier_score'), ('engagement', 'engagement_rate'), ('shares', 'shares')))
+        video_cards.append(f'<details class="card video-card"><summary><b>{_e(_human_video_title(record))}</b></summary><p class="muted">{metrics}</p><p><b>AI insight:</b> {_e(insight)}</p><p><a class="button secondary" href="{_e(record.get("url") or video.url)}" target="_blank" rel="noopener">Abrir TikTok</a></p><details><summary>Detalle técnico</summary><code>{_e(video.tiktok_id)}</code>{_evidence_html(item.get("evidence", []), by_tiktok_id)}</details></details>')
+    return f'''<p class="muted">Research Pack <code>{_e(analysis.research_pack_hash[:12])}</code> · {_when(analysis.updated_at)}</p><div class="card"><h3>Resumen</h3><p>{_e(summary)}</p><h3>Audiencia</h3><p>{_e(audience)}</p><h3>Caveats</h3><ul>{caveats}</ul></div>{sections}<h3>Videos</h3>{''.join(video_cards) or '<p class="muted">No video records.</p>'}'''
 
 
 @router.get('/research/channels/{channel_id}/intelligence/{analysis_id}', response_class=HTMLResponse)
@@ -743,31 +834,7 @@ def channel_intelligence_detail(channel_id: uuid.UUID, analysis_id: uuid.UUID, _
     if analysis is None:
         raise HTTPException(404, 'Unknown Channel Intelligence analysis')
     data = _channel_or_404(db, channel_id)
-    records = _selection(data, analysis.selection_mode)
-    by_tiktok_id = {record['video_id']: record for record in records}
-    channel_value = analysis.channel_intelligence
-    sections = ''.join(
-        f'<h2>{_e(section)}</h2><div class="card"><h3>{_e(item.get("name") or item.get("opportunity") or "Insight")}</h3><p>{_e(item.get("description") or item.get("rationale") or "")}</p>{_evidence_html(item.get("evidence", []), by_tiktok_id)}</div>'
-        for section, item in _channel_analysis_items(channel_value)
-    ) or '<p class="muted">No channel-level patterns were supplied.</p>'
-    video_rows = []
-    children = db.execute(select(ChannelVideoIntelligence, Video).join(Video, Video.id == ChannelVideoIntelligence.video_id).where(
-        ChannelVideoIntelligence.analysis_id == analysis.id
-    ).order_by(Video.published_at.desc(), Video.tiktok_id)).all()
-    # A later transcript import can change a live selection.  Imported
-    # evidence remains resolvable because the child rows retain the global
-    # video identity even when the old pack is no longer reproducible.
-    for _child, video in children:
-        by_tiktok_id.setdefault(video.tiktok_id, {
-            'video_id': video.tiktok_id, 'url': video.url,
-            'published_at': _iso(video.published_at), 'views': None,
-        })
-    for child, video in children:
-        item = child.intelligence
-        video_rows.append(f'<details class="card"><summary><b>{_e(video.tiktok_id)}</b> — {_e(item["topic"])} · {_e(item["content_format"])}</summary><p><b>Summary:</b> {_e(item["summary"])}</p><p><b>Hook:</b> {_e(item["hook"])}</p><p><b>Angle:</b> {_e(item["angle"])}</p><p><b>Audience:</b> {_e(item["target_audience"])}</p><p><b>Narrative:</b> {_e(item["narrative_structure"])}</p><p><b>CTA:</b> {_e(item["cta"])}</p><p><b>Performance interpretation:</b> {_e(item["performance_interpretation"])}</p>{_evidence_html(item["evidence"], by_tiktok_id)}</details>')
-    caveats = ''.join(f'<li>{_e(item)}</li>' for item in channel_value.get('caveats', [])) or '<li class="muted">None supplied.</li>'
-    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Channel Intelligence</a></p><h2>Channel Intelligence</h2><p class="muted">Research Pack <code>{_e(analysis.research_pack_hash)}</code> · {len(children)} videos · { _when(analysis.updated_at) }</p><div class="card"><h2>Channel summary</h2><p>{_e(channel_value['channel_summary'])}</p><h3>Audience profile</h3><p>{_e(channel_value['audience_profile'])}</p><h3>Caveats</h3><ul>{caveats}</ul></div>{sections}<h2>Per-video intelligence</h2>{''.join(video_rows)}'''
-    return _layout('Channel Intelligence detail', content)
+    return _layout('Channel Intelligence detail', f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Channel Intelligence</a></p><h2>Channel Intelligence</h2>{_channel_intelligence_results(data, analysis, db)}''')
 
 
 PROMPT_PRESETS = {
