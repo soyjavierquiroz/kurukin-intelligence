@@ -3,7 +3,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = '0008_channel_intelligence_analysis'
+revision = '0008_channel_intel'
 down_revision = '0007_semantic_viral_dna'
 branch_labels = None
 depends_on = None
