@@ -6,10 +6,12 @@ from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import exists, func, or_, select, text, update
 
-from .config import MIN_DISCOVERED_FOR_ADAPTIVE_INCREMENTAL, get_settings
+from .config import (MIN_DISCOVERED_FOR_ADAPTIVE_INCREMENTAL, PRIORITY_RATIO,
+                     get_settings)
 from .models import (Analysis, AnalysisAcquisition, AudioAssessment, Channel, Transcript,
                      Video, VideoSnapshot, TranscriptionJob, now)
-from .ranking import rank_snapshots, rank_videos
+from .ranking import (diversified_selection, priority_view_cutoff, rank_snapshots,
+                      rank_videos)
 
 
 ACQUISITION_VIDEO_NOT_AVAILABLE_COOLDOWN = timedelta(hours=24)
@@ -105,13 +107,10 @@ def new_enrichment_budget(discovered, config=None, eligible_missing_count=None):
     """
     config = config or get_settings()
     discovered = max(0, int(discovered))
-    budget = min(config.enrichment_max_new, max(
-        config.enrichment_min_new, ceil(discovered * config.enrichment_target_ratio)))
-    if discovered < config.enrichment_min_new:
-        budget = min(budget, discovered)
-        if eligible_missing_count is not None:
-            budget = min(budget, max(0, int(eligible_missing_count)))
-    return budget
+    base = max(config.enrichment_min_new,
+               ceil(discovered * config.enrichment_target_ratio))
+    return min(config.enrichment_max_new, discovered, base,
+               max(0, int(eligible_missing_count)) if eligible_missing_count is not None else discovered)
 
 
 def new_enrichment_used_ids(db, analysis):
@@ -124,11 +123,6 @@ def new_enrichment_used_ids(db, analysis):
     return {acquisition.video_id for acquisition, video, job in rows
             if video.enrichment_analysis_id == analysis.id and
             (job.status != 'reserved' or lease_active(video))}
-
-
-def selection_rank(row):
-    video, snapshot, rates, _transcript = row
-    return rates['outlier_score'], snapshot.views, rates['engagement_rate']
 
 
 def enrichment_eligibility(db, analysis, discovery_complete=False, has_more=False):
@@ -145,62 +139,101 @@ def enrichment_eligibility(db, analysis, discovery_complete=False, has_more=Fals
     jobs = {job.video_id: job for job in db.scalars(select(TranscriptionJob).where(
         TranscriptionJob.video_id.in_(video_ids)))} if video_ids else {}
     incremental = []
-    final = []
-    incremental_by_views = final_by_views = final_by_outlier = final_total = 0
+    incremental_by_views = 0
     effective_min_views = max(Decimal(config.enrichment_min_views),
                               Decimal(analysis.median_views) * Decimal(str(config.incremental_median_multiplier)))
     for video, snapshot, rates, transcript in rows:
         duration_ok = eligibility(video.duration)[0]
-        views_ok = snapshot.views >= config.enrichment_min_views
-        outlier_ok = rates['outlier_score'] >= Decimal(str(config.enrichment_min_outlier_score))
         if duration_ok and Decimal(snapshot.views) >= effective_min_views:
             incremental_by_views += 1
             incremental.append((video, snapshot, rates, transcript))
-        if not discovery_complete or not duration_ok:
-            continue
-        if views_ok:
-            final_by_views += 1
-        if outlier_ok:
-            final_by_outlier += 1
-        if views_ok or outlier_ok:
-            final_total += 1
-            final.append((video, snapshot, rates, transcript))
     # Partial medians settle materially only after a useful corpus.  Checkpoint
     # persistence remains independent from this no-op selection result.
-    selected = final if discovery_complete else ([] if analysis.video_count < MIN_DISCOVERED_FOR_ADAPTIVE_INCREMENTAL and has_more else incremental)
-    selected.sort(key=selection_rank, reverse=True)
-    candidates, already_resolved = [], 0
-    for video, snapshot, rates, transcript in selected:
+    # Partial discovery retains the former conservative adaptive threshold.
+    # It intentionally never derives a partial top-quartile pool.
+    if not discovery_complete:
+        selected = [] if analysis.video_count < MIN_DISCOVERED_FOR_ADAPTIVE_INCREMENTAL and has_more else incremental
+        candidates, already_resolved = [], 0
+        for video, snapshot, rates, transcript in selected:
+            job = jobs.get(video.id)
+            if transcript is not None or job is not None and job.status in ('completed', 'skipped'):
+                already_resolved += 1
+            else:
+                candidates.append((video, snapshot, rates, transcript))
+        used_ids = new_enrichment_used_ids(db, analysis)
+        available = [row for row in candidates if row[0].id not in used_ids]
+        used = len(used_ids)
+        budget = new_enrichment_budget(analysis.video_count, config)
+        remaining = max(0, budget - used)
+        return candidates, dict(
+            median_views_partial=float(analysis.median_views), median_views_final=None,
+            min_views=config.enrichment_min_views, min_outlier=config.enrichment_min_outlier_score,
+            incremental_effective_min_views=float(effective_min_views), final_candidate_count=None,
+            globally_resolved_eligible=already_resolved, new_enrichment_budget=budget,
+            new_enrichment_used=used, new_enrichment_remaining=remaining,
+            excluded_by_budget=max(0, len(available) - remaining),
+            eligible_incremental_by_views=incremental_by_views, eligible_final_by_views=None,
+            eligible_final_by_outlier=None, eligible_final_total=None,
+            eligible_total=incremental_by_views, already_resolved_global=already_resolved,
+            priority_ratio=float(PRIORITY_RATIO), priority_view_cutoff=None,
+            priority_top_views_count=None, priority_outlier_override_count=None,
+            priority_pool_count=None, globally_resolved_priority=None,
+            missing_priority_candidates=None, selection_views_quota=0,
+            selection_outlier_quota=0, selection_engagement_quota=0,
+            selected_by_views=0, selected_by_outlier=0,
+            selected_by_engagement=0, selected_by_backfill=0,
+        ), available[:remaining]
+
+    _target_count, cutoff = priority_view_cutoff(rows, PRIORITY_RATIO)
+    threshold = Decimal(str(config.enrichment_min_outlier_score))
+    priority, top_views_count, override_count = [], 0, 0
+    for row in rows:
+        video, snapshot, rates, _transcript = row
+        if not eligibility(video.duration)[0]:
+            continue
+        top_views = cutoff is not None and snapshot.views >= cutoff
+        override = rates['outlier_score'] >= threshold
+        if top_views:
+            top_views_count += 1
+        elif override:
+            override_count += 1
+        if top_views or override:
+            priority.append(row)
+    missing, globally_resolved = [], 0
+    for row in priority:
+        video, _snapshot, _rates, transcript = row
         job = jobs.get(video.id)
         if transcript is not None or job is not None and job.status in ('completed', 'skipped'):
-            already_resolved += 1
+            globally_resolved += 1
         else:
-            candidates.append((video, snapshot, rates, transcript))
+            missing.append(row)
     used_ids = new_enrichment_used_ids(db, analysis)
-    available = [row for row in candidates if row[0].id not in used_ids]
+    available = [row for row in missing if row[0].id not in used_ids]
     used = len(used_ids)
-    budget = new_enrichment_budget(analysis.video_count, config,
-                                   len(available) + used if analysis.video_count < config.enrichment_min_new else None)
+    budget = new_enrichment_budget(analysis.video_count, config, len(missing))
     remaining = max(0, budget - used)
-    authorized = available[:remaining]
-    return candidates, dict(
-        median_views_partial=float(analysis.median_views),
-        median_views_final=float(analysis.median_views) if discovery_complete else None,
-        min_views=config.enrichment_min_views,
-        min_outlier=config.enrichment_min_outlier_score,
-        incremental_effective_min_views=float(effective_min_views),
-        final_candidate_count=final_total if discovery_complete else None,
-        globally_resolved_eligible=already_resolved,
-        new_enrichment_budget=budget,
-        new_enrichment_used=used,
-        new_enrichment_remaining=remaining,
+    selected, quotas = diversified_selection(available, remaining)
+    authorized = [row for row, _reason in selected]
+    reason_counts = {reason: sum(reason == selected_reason for _row, selected_reason in selected)
+                     for reason in ('views', 'outlier', 'engagement', 'backfill')}
+    return missing, dict(
+        median_views_partial=float(analysis.median_views), median_views_final=float(analysis.median_views),
+        min_views=config.enrichment_min_views, min_outlier=config.enrichment_min_outlier_score,
+        incremental_effective_min_views=float(effective_min_views), final_candidate_count=len(priority),
+        globally_resolved_eligible=globally_resolved, new_enrichment_budget=budget,
+        new_enrichment_used=used, new_enrichment_remaining=remaining,
         excluded_by_budget=max(0, len(available) - remaining),
         eligible_incremental_by_views=incremental_by_views,
-        eligible_final_by_views=final_by_views if discovery_complete else None,
-        eligible_final_by_outlier=final_by_outlier if discovery_complete else None,
-        eligible_final_total=final_total if discovery_complete else None,
-        eligible_total=final_total if discovery_complete else incremental_by_views,
-        already_resolved_global=already_resolved,
+        eligible_final_by_views=top_views_count, eligible_final_by_outlier=override_count,
+        eligible_final_total=len(priority), eligible_total=len(priority),
+        already_resolved_global=globally_resolved, priority_ratio=float(PRIORITY_RATIO),
+        priority_view_cutoff=cutoff, priority_top_views_count=top_views_count,
+        priority_outlier_override_count=override_count, priority_pool_count=len(priority),
+        globally_resolved_priority=globally_resolved, missing_priority_candidates=len(missing),
+        selection_views_quota=quotas['views'], selection_outlier_quota=quotas['outlier'],
+        selection_engagement_quota=quotas['engagement'],
+        selected_by_views=reason_counts['views'], selected_by_outlier=reason_counts['outlier'],
+        selected_by_engagement=reason_counts['engagement'], selected_by_backfill=reason_counts['backfill'],
     ), authorized
 
 

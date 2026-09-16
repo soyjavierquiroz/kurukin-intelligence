@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from uuid import uuid4
 from types import SimpleNamespace
 import io
@@ -13,7 +14,7 @@ from app.services import (acquisition_batch, create_analysis, analysis_response,
 from app.jobs import release_reserved_acquisition
 from app.config import get_settings
 from app.main import process_audio
-from app.ranking import rank_videos
+from app.ranking import diversified_selection, priority_view_cutoff, rank_videos
 from app import audio
 
 
@@ -240,7 +241,7 @@ def test_existing_transcripts_do_not_consume_budget(db):
         v.enrichment_lease_until = now() - timedelta(seconds=1)
     complete(db, videos[0]); complete(db, videos[3]); db.commit()
     response = analysis_response(db, create_analysis(db, payload()))
-    assert [r['tiktok_id'] for r in response['enrichment_requests']] == ['10001','10002','10004']
+    assert {r['tiktok_id'] for r in response['enrichment_requests']} == {'10001','10002','10004'}
 
 
 def test_duplicate_requests_and_atomic_claim(db):
@@ -402,9 +403,9 @@ def test_smart_enrichment_defers_partial_outliers_and_uses_final_channel_median(
                                        [4000, 4000, 4000]), analysis_id=analysis_id, reserve=False)
     final = acquisition_batch(db, analysis.id, discovery_complete=True)
     assert final['enrichment']['median_views_final'] == 4000.0
-    assert final['enrichment']['eligible_final_by_views'] == 0
-    assert final['enrichment']['eligible_final_by_outlier'] == 1
-    assert [item['tiktok_id'] for item in final['enrichment_requests']] == ['10002']
+    assert final['enrichment']['priority_top_views_count'] == 4
+    assert final['enrichment']['priority_outlier_override_count'] == 0
+    assert {item['tiktok_id'] for item in final['enrichment_requests']} == {'10002', '10003', '10004', '10005'}
 
 
 def test_incremental_views_and_final_drain_are_idempotent_and_skip_global_resolution(db, monkeypatch):
@@ -433,11 +434,58 @@ def test_incremental_views_and_final_drain_are_idempotent_and_skip_global_resolu
 
 
 def test_adaptive_new_enrichment_budget_defaults_are_bounded():
+    assert new_enrichment_budget(2279) == 100
     assert new_enrichment_budget(730) == 100
-    assert new_enrichment_budget(200) == 30
-    assert new_enrichment_budget(100) == 20
-    assert new_enrichment_budget(50) == 20
+    assert new_enrichment_budget(300) == 75
+    assert new_enrichment_budget(100) == 25
+    assert new_enrichment_budget(50) == 15
     assert new_enrichment_budget(12, eligible_missing_count=3) == 3
+
+
+def test_priority_quartile_ties_outlier_override_and_duration_are_authoritative(db, monkeypatch):
+    # The third high-view video is outside a two-video top quartile but remains
+    # eligible via its relative-performance override.  The short video never
+    # enters either branch of the pool.
+    monkeypatch.setenv('ENRICHMENT_MIN_OUTLIER_SCORE', '2.0')
+    get_settings.cache_clear()
+    ids = [str(71000 + index) for index in range(8)]
+    analysis = create_analysis(db, scoped_payload(ids, durations=[39., 39., 39., 7., 39., 39., 39., 39.],
+        views=[100, 90, 80, 10, 10, 10, 10, 10]), reserve=False)
+    response = acquisition_batch(db, analysis.id, discovery_complete=True)
+    enrichment = response['enrichment']
+    assert enrichment['priority_ratio'] == .25
+    assert enrichment['priority_view_cutoff'] == 90
+    assert enrichment['priority_top_views_count'] == 2
+    assert enrichment['priority_outlier_override_count'] == 1
+    assert enrichment['priority_pool_count'] == 3
+    assert enrichment['missing_priority_candidates'] == 3
+    assert {item['tiktok_id'] for item in response['enrichment_requests']} == set(ids[:3])
+    assert ids[3] not in {item['tiktok_id'] for item in response['enrichment_requests']}
+
+
+def test_diversified_priority_buckets_are_distinct_and_deterministic():
+    rows = []
+    for index in range(100):
+        video = SimpleNamespace(id=f'video-{index:03}', tiktok_id=str(80000 + index))
+        snapshot = SimpleNamespace(views=1000 - index)
+        rates = {'outlier_score': Decimal(100 - index),
+                 'engagement_rate': Decimal(index) / Decimal(100)}
+        rows.append((video, snapshot, rates, None))
+    selected, quotas = diversified_selection(rows, 100)
+    assert quotas == {'views': 60, 'outlier': 25, 'engagement': 15}
+    assert len(selected) == 100
+    assert len({row[0].id for row, _reason in selected}) == 100
+    assert {reason: sum(reason == picked for _row, picked in selected)
+            for reason in ('views', 'outlier', 'engagement', 'backfill')} == {
+                'views': 60, 'outlier': 25, 'engagement': 15, 'backfill': 0}
+    assert priority_view_cutoff(rows) == (25, 976)
+    tied = [
+        (SimpleNamespace(id=f'tie-{index}'), SimpleNamespace(views=views), {}, None)
+        for index, views in enumerate((100, 90, 90, 10, 10))
+    ]
+    target, cutoff = priority_view_cutoff(tied)
+    assert (target, cutoff) == (2, 90)
+    assert sum(row[1].views >= cutoff for row in tied) == 3
 
 
 def test_resolved_transcripts_remain_usable_and_cost_no_new_budget(db, monkeypatch):
@@ -543,7 +591,8 @@ def test_incremental_commitment_reduces_the_final_new_work_allowance(db, monkeyp
     assert final['enrichment']['new_enrichment_budget'] == 2
     assert final['enrichment']['new_enrichment_used'] == 2
     assert final['enrichment']['new_enrichment_remaining'] == 0
-    assert {item['tiktok_id'] for item in final['enrichment_requests']} == {'70498', '70499'}
+    assert len(final['enrichment_requests']) == 2
+    assert '70499' in {item['tiktok_id'] for item in final['enrichment_requests']}
 
 
 def test_checkpoint_endpoint_replays_the_same_analysis_id(db):

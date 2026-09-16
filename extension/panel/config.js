@@ -3,4 +3,4 @@
  * operator package, set it to true before packaging; the curator engine and
  * all extension permissions remain identical.
  */
-globalThis.KurukinPanelConfig=Object.freeze({ADMIN_DEBUG_MODE:false,EXTENSION_VERSION:'0.8.17'});
+globalThis.KurukinPanelConfig=Object.freeze({ADMIN_DEBUG_MODE:false,EXTENSION_VERSION:'0.8.18'});
