@@ -235,6 +235,11 @@ class ChannelIntelligenceAnalysis(Identity, Base):
     schema_version: Mapped[str] = mapped_column(String(64))
     selection_mode: Mapped[str] = mapped_column(String(32))
     payload_sha256: Mapped[str] = mapped_column(String(64))
+    # These are intentionally separate from research_pack_hash: a view-count
+    # refresh must never make semantic knowledge stale.
+    semantic_corpus_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    performance_state_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    analysis_contract_version: Mapped[str | None] = mapped_column(String(128))
     channel_intelligence: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
@@ -248,6 +253,7 @@ class ChannelVideoIntelligence(Identity, Base):
     analysis_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channel_intelligence_analyses.id'), index=True)
     video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('videos.id'), index=True)
     intelligence: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    semantic_source_hash: Mapped[str | None] = mapped_column(String(64), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
@@ -259,6 +265,39 @@ class PrivateContentPack(Identity, Base):
     payload_sha256: Mapped[str] = mapped_column(String(64), unique=True)
     private_context: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
     content_pack: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    personal_strategy: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class ChannelStrategicPlaybook(Identity, Base):
+    """Immutable, public channel playbook cached by its complete input identity."""
+    __tablename__ = 'channel_strategic_playbooks'
+    __table_args__ = (
+        UniqueConstraint('channel_id', 'source_payload_sha', 'performance_state_hash',
+                         'prompt_version', 'provider', 'model', name='uq_channel_playbook_cache'),
+    )
+    channel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channels.id'), index=True)
+    source_analysis_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channel_intelligence_analyses.id'), index=True)
+    source_payload_sha: Mapped[str] = mapped_column(String(64), index=True)
+    semantic_corpus_hash: Mapped[str] = mapped_column(String(64), index=True)
+    performance_state_hash: Mapped[str] = mapped_column(String(64), index=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    provider: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(128))
+    payload_sha256: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class PrivatePersonalStrategy(Identity, Base):
+    """User-owned adaptation of a public playbook; never queried as global knowledge."""
+    __tablename__ = 'private_personal_strategies'
+    channel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channels.id'), index=True)
+    playbook_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('channel_strategic_playbooks.id'), index=True)
+    payload_sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    private_context: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
+    strategy_json: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, 'postgresql'))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 

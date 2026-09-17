@@ -52,7 +52,11 @@ def test_initial_migration_matches_metadata_and_downgrade():
             spec9=importlib.util.spec_from_file_location('private_content_packs', ROOT/'alembic/versions/0009_private_content_packs.py')
             ninth=importlib.util.module_from_spec(spec9); spec9.loader.exec_module(ninth)
             ninth.upgrade()
+            spec10=importlib.util.spec_from_file_location('knowledge_strategist', ROOT/'alembic/versions/0010_knowledge_strategist.py')
+            tenth=importlib.util.module_from_spec(spec10); spec10.loader.exec_module(tenth)
+            tenth.upgrade()
             assert compare_metadata(context, Base.metadata) == []
+            tenth.downgrade()
             ninth.downgrade()
             eighth.downgrade()
             seventh.downgrade()

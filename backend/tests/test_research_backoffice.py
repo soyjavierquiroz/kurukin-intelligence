@@ -315,7 +315,7 @@ def test_research_ux_versions_structured_primary_and_demotes_legacy_prompt(db, m
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'INTERNAL RESEARCH BACKOFFICE v1.4 · SCI v1 · CREATE v1 · Build 193a52f' in page
+        assert 'INTERNAL RESEARCH BACKOFFICE v1.6 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build 193a52f' in page
     assert 'Structured Channel Intelligence' in intelligence
 
     monkeypatch.delenv('KURUKIN_BUILD_SHA')
