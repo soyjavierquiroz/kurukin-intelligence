@@ -318,7 +318,7 @@ def test_external_ai_handoff_is_an_explicit_mobile_safe_three_step_flow(db):
     assert 'class="channel-context"' in page and 'Trabajando en:' in page
     assert f'@{channel.username}' in page and channel.nickname in page
     assert '@media(max-width:650px){.channel-context' in layout
-    assert 'KURUKIN PRODUCT LITE v1.1 · SCI v1' in page
+    assert 'KURUKIN PRODUCT LITE v1.2 · SCI v1' in page
 
 
 def test_channel_context_is_visible_on_product_lite_channel_screens(db):
@@ -670,7 +670,7 @@ def test_product_lite_marker_and_advanced_separation(db, monkeypatch):
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'KURUKIN PRODUCT LITE v1.1 · SCI v1 · Build 193a52f' in page
+        assert 'KURUKIN PRODUCT LITE v1.2 · SCI v1 · Build 193a52f' in page
         assert '1&nbsp; CANAL' in page and '3&nbsp; USAR INTELIGENCIA' in page
     assert 'Canales' in index and 'Siguiente paso' in index
     assert 'channel-list' in index and '<table>' not in index
@@ -713,10 +713,43 @@ def test_product_lite_fresh_executive_evidence_and_handoff(db):
     assert 'NO_INTELLIGENCE' not in executive and 'SEMANTIC_DELTA' not in executive
     assert 'USAR ESTA INTELIGENCIA' in page and 'Videos representativos' in page
     assert 'creative-context-form' in page and 'name="tone"' in page
-    assert 'Copiar Super Prompt y abrir Alex Hormozi GPT' in page
+    assert 'Preparar mi contexto creativo' in page and 'Copiar Super Prompt' in page
     assert 'CREAR CONTENIDO' not in page and 'Generar mi estrategia' not in page
     assert 'Auto Curator' not in page
     assert admin._private_context_from_form('Producto', 'Oferta', 'Audiencia', 'Leads', '', '')['tone'] == ''
+
+
+def test_v12_business_context_handoff_reuses_the_prior_hormozi_chat(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    payload = _channel_analysis_payload(data)
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, payload, 'all', admin.canonical_json_sha256(payload), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+
+    page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
+    imported_page = admin.channel_intelligence_page(channel.id, imported=True, db=db).body.decode()
+    primary_copy_handler = page[page.index("document.getElementById('copy-super-prompt')"):page.index("document.getElementById('open-new-hormozi')")]
+
+    assert '¿Qué vendes?' in page and '¿A quién quieres vender?' in page
+    assert '¿Qué quieres conseguir?' in page and '¿Cómo quieres convertir esa atención?' in page
+    assert 'placeholder="Mística: sahumerios, aceites esenciales y productos rituales para bienestar y armonización del hogar."' in page
+    assert 'placeholder="Mujeres de 35–55 años interesadas en espiritualidad, autocuidado y bienestar del hogar."' in page
+    assert 'type="radio" name="objective" value="Ventas" required' in page
+    assert all(f'<option>{choice}</option>' in page for choice in ('WhatsApp', 'Mensaje privado', 'Link en bio', 'Comentarios', 'Otro'))
+    assert '<details id="advanced-context">' in page and '<details id="advanced-context" open>' not in page
+    assert 'Personalizar más' in page and 'name="offer"' in page and 'name="market"' in page
+    assert 'Preparar mi contexto creativo' in page and 'id="creative-context-ready"' in page
+    assert '✓ Inteligencia del canal' in page and '✓ Tu CTA' in page and 'Descargar contexto' in page
+    assert 'Vuelve al mismo chat de Alex Hormozi que utilizaste para analizar este canal.' in page
+    assert 'id="copy-super-prompt"' in page and 'window.open' not in primary_copy_handler
+    assert '¿Ya no tienes abierta la conversación anterior?' in page
+    assert 'id="open-new-hormozi"' in page and admin.HORMOZI_GPT_URL in page
+    assert '@media(max-width:650px){.choice-grid{grid-template-columns:1fr}' in page
+    assert 'Inteligencia importada correctamente.' in imported_page
+    assert 'mantén abierta esa conversación' in imported_page
+    assert admin._creative_context_from_form(cta_preference='Otro', cta_custom='Telegram')['cta_preference'] == 'Telegram'
+    assert '?imported=1' in admin.channel_intelligence_prompt_page(channel.id, db=db).body.decode()
 
 
 def test_product_lite_creative_context_and_super_prompt_use_existing_evidence_only(db):
@@ -744,6 +777,10 @@ def test_product_lite_creative_context_and_super_prompt_use_existing_evidence_on
     assert 'Caption 1' in markdown and 'TikTok:' in markdown and 'Extracto de transcripción' in markdown
     assert '5 strongest campaigns' in prompt and '3 hook options' in prompt
     assert 'Do not require JSON' in prompt and 'return or import anything into Kurukin' in prompt
+    assert 'You previously analyzed this competitor channel for me.' in prompt
+    assert 'the context you already have from this conversation' in prompt
+    assert 'the attached kurukin-creative-context.md' in prompt
+    assert 'attached Kurukin context as the current source of truth' in prompt
     assert download.headers['content-disposition'] == 'attachment; filename="kurukin-creative-context.md"'
     assert download.body.decode() == markdown
     assert db.scalar(select(func.count()).select_from(PrivatePersonalStrategy)) == 0
