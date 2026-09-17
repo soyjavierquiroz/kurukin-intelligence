@@ -41,8 +41,9 @@ from .models import (
     Channel, ChannelIntelligenceAnalysis, ChannelVideoIntelligence, Transcript,
     ChannelStrategicPlaybook, PrivateContentPack, PrivatePersonalStrategy, Video, VideoSnapshot,
 )
-from .strategist import (PLAYBOOK_SCHEMA_VERSION, PERSONAL_STRATEGY_SCHEMA_VERSION, configured_personal_generator,
-    configured_playbook_generator, get_or_create_playbook, personal_strategy_input)
+from .strategist import (configured_personal_generator, configured_playbook_generator, get_or_create_playbook,
+    personal_strategy_display, personal_strategy_input,
+    validate_personal_strategy)
 from .ranking import priority_view_cutoff, rank_snapshots
 from .services import eligibility
 
@@ -116,8 +117,8 @@ def _layout(title: str, content: str, *, product_journey: bool = True) -> HTMLRe
 <title>{_e(title)} · Kurukin</title><style>
 :root{{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fa}}
 body{{margin:0}}main{{max-width:1000px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:16px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}h3{{margin:18px 0 8px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:12px;padding:18px;margin:14px 0}}.hero{{border-color:#b8d0f3}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY,.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;display:inline-block;min-height:44px;box-sizing:border-box}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:10px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:160px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}.step{{padding:0;overflow:hidden}}.step>summary{{cursor:pointer;list-style:none;padding:17px;font-size:1.05rem;min-height:24px}}.step>summary::-webkit-details-marker{{display:none}}.step-body{{padding:0 17px 17px}}.dropzone{{display:block;border:2px dashed #8ba3bd;border-radius:9px;padding:28px 16px;text-align:center;background:#f8fafc;cursor:pointer}}.dropzone input{{display:none}}.error-box{{background:#fee2e2;color:#7f1d1d;padding:12px;border-radius:7px}}.video-card{{border-left:4px solid #1659b7}}.channel-list{{display:grid;gap:10px}}.channel-list .card{{margin:0}}.journey{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px}}.journey span{{padding:6px 10px;background:#e7edf3;border-radius:999px;font-size:.84rem;font-weight:600}}.eyebrow{{color:#526174;font-weight:700;font-size:.78rem;letter-spacing:.06em}}.insight-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}.insight-grid .card{{margin:0}}.technical{{font-size:.9rem}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}header .muted{{display:block;margin-top:6px}}.actions{{display:grid}}.actions>*{{width:100%;text-align:center}}.journey{{display:grid;grid-template-columns:1fr 1fr;gap:6px}}.journey span{{text-align:center}}.stat-grid,.insight-grid{{grid-template-columns:1fr}}}}
-.handoff-step{{border-left:4px solid #1659b7}}.handoff-step h2{{margin-top:4px}}.handoff-status{{min-height:1.4em}}.required-filename{{display:inline-block;background:#eff6ff;border:1px solid #b8d0f3;border-radius:6px;padding:4px 7px;font-size:1em;font-weight:700;overflow-wrap:anywhere}}.current-intelligence{{display:grid;gap:6px}}@media(max-width:650px){{.handoff-step{{padding:16px}}.dropzone{{padding:24px 12px}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.8 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
+.handoff-step{{border-left:4px solid #1659b7}}.handoff-step h2{{margin-top:4px}}.handoff-status{{min-height:1.4em}}.required-filename{{display:inline-block;background:#eff6ff;border:1px solid #b8d0f3;border-radius:6px;padding:4px 7px;font-size:1em;font-weight:700;overflow-wrap:anywhere}}.current-intelligence{{display:grid;gap:6px}}.executive-thesis{{padding:28px;border:0;border-radius:14px;background:linear-gradient(135deg,#eaf3ff,#fff)}}.formula{{font-size:1.15rem;line-height:1.7}}.decision-cta{{padding:22px;border:1px solid #b8d0f3;border-radius:12px;margin:20px 0 28px}}.mechanism-list{{display:grid;gap:0;border-top:1px solid #dce3eb}}.mechanism{{padding:20px 0;border-bottom:1px solid #dce3eb}}.mechanism-rank{{font-size:1.5rem;font-weight:800;color:#1659b7;margin-right:10px}}.proof-summary{{color:#526174;font-size:.9rem}}.evidence-detail{{margin-top:12px;background:#f8fafc;border-radius:8px;padding:10px}}.evidence-detail summary{{cursor:pointer;font-weight:700}}.compact-columns{{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin:20px 0}}.compact-list{{margin:8px 0;padding-left:20px}}.compact-list li{{margin:5px 0}}.secondary-intelligence{{margin:10px 0;border:1px solid #e7edf3;border-radius:8px;padding:12px}}.strategy-result{{margin:26px 0;padding:24px;border:1px solid #b8d0f3;border-radius:14px}}.strategy-recommendation{{padding:16px 0;border-bottom:1px solid #e7edf3}}.strategy-recommendation:last-child{{border-bottom:0}}@media(max-width:650px){{.handoff-step{{padding:16px}}.dropzone{{padding:24px 12px}}.compact-columns{{grid-template-columns:1fr;gap:12px}}.executive-thesis{{padding:20px}}.decision-cta{{padding:18px}}}}
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.9 · SCI v1 · STRATEGIST v2 · CREATE v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -919,27 +920,77 @@ def _evidence_badges(entries: list[dict[str, Any]], records: dict[str, dict[str,
     return ' '.join(badges[:4]) or '<span class="muted">Evidence cited in imported intelligence.</span>'
 
 
-def _playbook_items(items: list[dict[str, Any]], records: dict[str, dict[str, Any]]) -> str:
-    if not items:
-        return '<p class="muted">Aún no hay un patrón importado en esta categoría.</p>'
-    return ''.join(
-        f'<div class="card"><b>{_e(item.get("name") or "Pattern")}</b><p>{_e(item.get("description") or "")}</p>'
-        f'<p>{_evidence_badges(item.get("evidence", []), records)}</p></div>'
-        for item in items[:5] if isinstance(item, dict)
-    )
+def _format_metric(value: Any, suffix: str = '') -> str:
+    if isinstance(value, (int, float)):
+        return f'{value:,.0f}{suffix}'
+    return '—'
+
+
+def _evidence_detail(entries: list[dict[str, Any]], records: dict[str, dict[str, Any]], *, adaptation: str = '') -> str:
+    """Evidence is deliberately collapsed: it supports the conclusion, not the hierarchy."""
+    rows = []
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        for video_id in entry.get('video_ids', []) if isinstance(entry.get('video_ids'), list) else []:
+            record = records.get(video_id)
+            if record is None:
+                continue
+            metrics = f"{_format_metric(record.get('views'), ' vistas')} · outlier {_number(record.get('outlier_score')) if record.get('outlier_score') is not None else '—'} · engagement {_number(record.get('engagement_rate')) if record.get('engagement_rate') is not None else '—'} · shares {_format_metric(record.get('shares'))}"
+            rows.append(f'<li><b>{_e(_video_label(record))}</b><br><span class="muted">{_e(metrics)}</span><br>{_e(entry.get("claim") or "Patrón observado en este video.")} · <a href="{_e(record["url"])}" target="_blank" rel="noopener">Ver en TikTok</a></li>')
+    if not rows:
+        return '<span class="muted">Sin evidencia de video disponible.</span>'
+    adaptation_html = f'<p><b>Adaptación recomendada:</b> {_e(adaptation)}</p>' if adaptation else ''
+    return f'<details class="evidence-detail"><summary>Ver evidencia</summary><ol>{"".join(rows)}</ol>{adaptation_html}</details>'
+
+
+def _proof_summary(item: dict[str, Any], records: dict[str, dict[str, Any]]) -> str:
+    ids = [video_id for entry in item.get('evidence', []) if isinstance(entry, dict)
+           for video_id in entry.get('video_ids', []) if isinstance(video_id, str)]
+    evidence = [records[video_id] for video_id in dict.fromkeys(ids) if video_id in records]
+    if not evidence:
+        return 'Evidencia citada en la inteligencia.'
+    strongest = max((record.get('views') or 0 for record in evidence), default=0)
+    return f'{len(evidence)} video(s) con evidencia · mejor ejemplo {_format_metric(strongest, " vistas")}'
+
+
+def _compact_items(items: Any, *, limit: int = 5, description: bool = False) -> str:
+    rows = [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+    if not rows:
+        return '<p class="muted">Aún no hay suficiente evidencia importada.</p>'
+    initial = ''.join(f'<li><b>{_e(item.get("name") or "Patrón")}</b>{(" — " + _e(item.get("description") or "")) if description else ""}</li>' for item in rows[:limit])
+    extra = ''.join(f'<li><b>{_e(item.get("name") or "Patrón")}</b>{(" — " + _e(item.get("description") or "")) if description else ""}</li>' for item in rows[limit:])
+    more = f'<details><summary>Ver todos</summary><ul class="compact-list">{extra}</ul></details>' if extra else ''
+    return f'<ul class="compact-list">{initial}</ul>{more}'
 
 
 def _actionable_playbook(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis) -> str:
+    """Executive-first Channel Intelligence; full source analysis remains available below."""
     records = {record['video_id']: record for record in _selection(data, analysis.selection_mode)}
     value = analysis.channel_intelligence
-    sections = ''.join(
-        f'<h3>{label}</h3>{_playbook_items(value.get(key, []), records)}'
-        for key, label in _PLAYBOOK_SECTIONS
+    winning = [item for item in value.get('winning_patterns', []) if isinstance(item, dict)]
+    mechanisms = winning[:5]
+    if not mechanisms:
+        mechanisms = [item for item in value.get('hooks', []) if isinstance(item, dict)][:5]
+    formula = ' → '.join(str(item.get('name')) for item in mechanisms[:4] if item.get('name')) or 'Problema específico → explicación → significado → transformación → CTA'
+    mechanism_html = ''.join(
+        f'<article class="mechanism"><span class="mechanism-rank">{index}</span><b>{_e(item.get("name") or "Mecanismo")}</b>'
+        f'<p>{_e(item.get("description") or "Mecanismo repetido respaldado por evidencia del canal.")}</p>'
+        f'<p><b>Por qué importa:</b> {_e(item.get("why_it_matters") or item.get("description") or "Conecta una tensión concreta con una razón para seguir mirando.")}</p>'
+        f'<p class="proof-summary">{_e(_proof_summary(item, records))}</p>{_evidence_detail(item.get("evidence", []), records)}</article>'
+        for index, item in enumerate(mechanisms, 1)
+    ) or '<p class="muted">Aún no hay mecanismos importados.</p>'
+    secondary = ''.join(
+        f'<details class="secondary-intelligence"><summary><b>{label}</b></summary>{_compact_items(value.get(key), limit=5, description=True)}</details>'
+        for key, label in (('narratives', 'Narrativas'), ('ctas', 'Patrones de CTA'), ('offers', 'Patrones de oferta'),
+                           ('repetition_clusters', 'Estrategia de repetición'), ('topics', 'Temas y persuasión'))
     )
-    winning = value.get('winning_patterns', [])
-    formula = ' → '.join(str(item.get('name')) for item in winning[:3] if isinstance(item, dict) and item.get('name')) or 'Use the strongest repeated pattern, then adapt it to your offer.'
-    return f'''<section id="what-works"><h2>¿POR QUÉ FUNCIONA ESTE CANAL?</h2><div class="card hero"><p>{_e(value.get('summary') or 'La inteligencia disponible identifica mecanismos que el canal repite con evidencia.')}</p><p class="eyebrow">FÓRMULA DOMINANTE</p><p><b>{_e(formula)}</b></p></div><div class="insight-grid">{sections}</div></section>
-<section id="what-next"><h2>Qué hacer ahora</h2><p>Adapta los mecanismos probados a tu oferta y audiencia, sin copiar la identidad, el lenguaje ni las afirmaciones del canal.</p><div class="actions"><button type="button" id="adapt-business">Adaptar esto a mi negocio</button></div></section>'''
+    return f'''<section id="what-works"><h2>¿POR QUÉ FUNCIONA ESTE CANAL?</h2><div class="executive-thesis"><p>{_e(value.get('summary') or 'La inteligencia disponible identifica mecanismos repetidos con evidencia.')}</p><p class="eyebrow">FÓRMULA DOMINANTE</p><p class="formula"><b>{_e(formula)}</b></p></div></section>
+<section id="what-next" class="decision-cta"><h2>¿QUÉ QUIERES HACER CON ESTO?</h2><p>Kurukin usará los mecanismos que funcionan en este canal y evaluará cuáles tienen sentido para tu mercado, oferta y audiencia, sin copiar la identidad ni las afirmaciones del creador.</p><div class="actions"><button type="button" id="adapt-business">Adaptar esto a mi negocio</button></div></section>
+<section id="top-mechanisms"><h2>MECANISMOS PRINCIPALES</h2><p class="muted">Los 3–5 mecanismos más importantes. Las métricas están dentro de la evidencia.</p><div class="mechanism-list">{mechanism_html}</div></section>
+<section class="compact-columns"><div><h2>DOLORES QUE ACTIVAN</h2>{_compact_items(value.get('pains'))}</div><div><h2>DESEOS QUE ACTIVAN</h2>{_compact_items(value.get('desires'))}</div></section>
+<section><h2>HOOKS QUE FUNCIONAN</h2>{_compact_items(value.get('hooks'), limit=3, description=True)}</section>
+<section><h2>INTELIGENCIA SECUNDARIA</h2>{secondary}</section>'''
 
 
 def _strategic_playbook_html(playbook: ChannelStrategicPlaybook, records: dict[str, dict[str, Any]]) -> str:
@@ -987,7 +1038,8 @@ def generate_channel_playbook(channel_id: uuid.UUID, _auth: None = Depends(requi
 
 @router.post('/research/channels/{channel_id}/intelligence/personal-strategy')
 def generate_personal_strategy(channel_id: uuid.UUID, business: str = Form(...), offer: str = Form(...), audience: str = Form(...),
-                               goal: str = Form(...), tone: str = Form(''), constraints: str = Form(''),
+                               market: str = Form(...), goal: str = Form(...), execution: str = Form(...),
+                               tone: str = Form(''), constraints: str = Form(''), additional_context: str = Form(''),
                                _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     analysis = db.scalar(select(ChannelIntelligenceAnalysis).where(ChannelIntelligenceAnalysis.channel_id == channel_id).order_by(
         ChannelIntelligenceAnalysis.created_at.desc(), ChannelIntelligenceAnalysis.id.desc()))
@@ -1005,8 +1057,12 @@ def generate_personal_strategy(channel_id: uuid.UUID, business: str = Form(...),
                 records=records, videos=children, provider=provider, model=model, generate=generate)
         except Exception:
             return JSONResponse({'ok': False, 'error': 'No pudimos preparar la estrategia del canal en este momento.'}, status_code=503)
-    context = _private_context_from_form(business, offer, audience, goal, tone, constraints)
-    payload = personal_strategy_input(playbook.payload_json, context)
+    context = _private_context_from_form(business, offer, audience, goal, tone, constraints, market=market,
+                                         execution=execution, additional_context=additional_context,
+                                         require_strategy_profile=True)
+    data = _channel_or_404(db, channel_id)
+    records = _selection(data, analysis.selection_mode)
+    payload = personal_strategy_input(playbook.payload_json, context, _personal_strategy_evidence(playbook.payload_json, records))
     digest = canonical_json_sha256(payload)
     existing = db.scalar(select(PrivatePersonalStrategy).where(PrivatePersonalStrategy.payload_sha256 == digest))
     if existing is not None: return JSONResponse({'ok': True, 'reused': True, 'strategy': existing.strategy_json})
@@ -1014,21 +1070,93 @@ def generate_personal_strategy(channel_id: uuid.UUID, business: str = Form(...),
         result = configured_personal_generator(get_settings())(payload)
     except Exception:
         return JSONResponse({'ok': False, 'error': 'No pudimos generar tu estrategia personal en este momento.'}, status_code=503)
-    if result.get('schema') != PERSONAL_STRATEGY_SCHEMA_VERSION:
+    if validate_personal_strategy(result, known_video_ids={record['video_id'] for record in records}):
         return JSONResponse({'ok': False, 'error': 'No pudimos generar tu estrategia personal en este momento.'}, status_code=503)
     db.add(PrivatePersonalStrategy(channel_id=channel_id, playbook_id=playbook.id, payload_sha256=digest,
         private_context=context, strategy_json=result)); db.commit()
     return JSONResponse({'ok': True, 'reused': False, 'strategy': result})
 
 
-def _private_context_from_form(business: str, offer: str, audience: str, goal: str, tone: str, constraints: str) -> dict[str, str]:
-    values = {'business': business, 'offer': offer, 'audience': audience, 'goal': goal, 'tone': tone, 'constraints': constraints}
-    required = ('business', 'offer', 'audience', 'goal')
+def _private_context_from_form(business: str, offer: str, audience: str, goal: str, tone: str, constraints: str,
+                               *, market: str = '', execution: str = '', additional_context: str = '',
+                               require_strategy_profile: bool = False) -> dict[str, str]:
+    values = {'business': business, 'offer': offer, 'audience': audience, 'market': market, 'goal': goal,
+              'execution': execution, 'tone': tone, 'constraints': constraints, 'additional_context': additional_context}
+    required = ('business', 'offer', 'audience', 'goal') + (('market', 'execution') if require_strategy_profile else ())
     errors = [f'{field} is required' for field in required if not values[field].strip()]
     errors.extend(f'{field} is too long' for field, value in values.items() if len(value) > 4000)
     if errors:
         raise HTTPException(422, {'errors': errors})
     return {field: value.strip() for field, value in values.items()}
+
+
+def _personal_strategy_evidence(playbook: dict[str, Any], records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Resolve only cited public evidence into a small, human-meaningful strategist input."""
+    by_id = {record['video_id']: record for record in records}
+    output: list[dict[str, Any]] = []
+    for section in ('top_moves', 'what_to_repeat', 'hook_playbook', 'narrative_playbook', 'pain_desire_playbook'):
+        rows = playbook.get(section, [])
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            pattern = row.get('title') or row.get('name') or section
+            for video_id in row.get('evidence_video_ids', []) if isinstance(row.get('evidence_video_ids'), list) else []:
+                record = by_id.get(video_id)
+                if record is None:
+                    continue
+                output.append({'video_id': video_id, 'title': _video_label(record), 'url': record['url'],
+                               'views': record.get('views'), 'engagement_rate': record.get('engagement_rate'),
+                               'outlier_score': record.get('outlier_score'), 'shares': record.get('shares'),
+                               'source_pattern': pattern, 'why_it_matters': row.get('why_it_works') or row.get('why') or ''})
+    unique = {item['video_id']: item for item in output}
+    return list(unique.values())[:20]
+
+
+def _latest_personal_strategy(db: Session, channel_id: uuid.UUID) -> PrivatePersonalStrategy | None:
+    candidates = list(db.scalars(select(PrivatePersonalStrategy).where(
+        PrivatePersonalStrategy.channel_id == channel_id
+    ).order_by(PrivatePersonalStrategy.updated_at.desc(), PrivatePersonalStrategy.id.desc())))
+    return next((row for row in candidates if not validate_personal_strategy(row.strategy_json)), None)
+
+
+def _strategy_text_list(rows: Any) -> str:
+    if not isinstance(rows, list) or not rows:
+        return '<p class="muted">—</p>'
+    values = []
+    for row in rows[:6]:
+        if isinstance(row, str): values.append(f'<li>{_e(row)}</li>')
+        elif isinstance(row, dict): values.append(f'<li><b>{_e(row.get("name") or row.get("title") or row.get("hypothesis") or "Prioridad")}</b>{(" — " + _e(row.get("description") or row.get("adaptation") or row.get("what_to_test") or ""))}</li>')
+    return '<ul class="compact-list">' + ''.join(values) + '</ul>'
+
+
+def _strategy_narrative(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ('recommendation', 'summary', 'description', 'strategy', 'text'):
+            if isinstance(value.get(key), str) and value[key].strip():
+                return value[key]
+        return ' · '.join(f'{key}: {item}' for key, item in value.items() if isinstance(item, str)) or '—'
+    return '—'
+
+
+def _personal_strategy_html(strategy: dict[str, Any], records: dict[str, dict[str, Any]]) -> str:
+    value = personal_strategy_display(strategy)
+    patterns = value.get('patterns_to_adapt', [])
+    recommendations = []
+    for item in patterns[:5] if isinstance(patterns, list) else []:
+        if not isinstance(item, dict):
+            continue
+        evidence = _evidence_detail([{'video_ids': item.get('evidence_video_ids', []), 'claim': item.get('why_it_works_in_source', '')}], records,
+                                    adaptation=item.get('adaptation', ''))
+        recommendations.append(f'<article class="strategy-recommendation"><h3>{_e(item.get("name") or "Recomendación")}</h3><p>{_e(item.get("fit_for_business") or "")}</p><p><b>Cómo adaptarlo:</b> {_e(item.get("adaptation") or "")}</p><p><b>Qué no copiar:</b> {_e(item.get("what_not_to_copy") or "")}</p><p><b>Uso recomendado:</b> {_e(item.get("recommended_use") or "")}</p>{evidence}</article>')
+    tests = []
+    for item in value.get('test_priorities', [])[:5] if isinstance(value.get('test_priorities'), list) else []:
+        if not isinstance(item, dict):
+            tests.append(f'<li>{_e(item)}</li>'); continue
+        tests.append(f'<li><b>{_e(item.get("priority") or "Prioridad")}: {_e(item.get("hypothesis") or "")}</b><br>{_e(item.get("what_to_test") or "")}<br><span class="muted">Señal: {_e(item.get("success_signal") or "")}</span>{_evidence_detail([{"video_ids": item.get("evidence_video_ids", []), "claim": "Patrón que sustenta la prueba."}], records)}</li>')
+    legacy = '<p class="muted">Estrategia histórica V1: se conserva legible; genera una nueva estrategia para actualizarla a V2.</p>' if value.get('legacy') else ''
+    return f'''<section id="personal-strategy-result" class="strategy-result"><h2>TU ESTRATEGIA</h2>{legacy}<h3>RECOMENDACIÓN EJECUTIVA</h3><p>{_e(_strategy_narrative(value.get('executive_recommendation') or value.get('strategic_fit')))}</p><h3>QUÉ ADAPTAR</h3>{''.join(recommendations) or '<p class="muted">—</p>'}<h3>QUÉ NO COPIAR</h3>{_strategy_text_list(value.get('patterns_to_avoid'))}<div class="compact-columns"><div><h3>DOLORES A TRABAJAR</h3>{_strategy_text_list(value.get('pain_opportunities'))}</div><div><h3>DESEOS A ACTIVAR</h3>{_strategy_text_list(value.get('desire_opportunities'))}</div></div><h3>HOOKS A ADAPTAR</h3>{_strategy_text_list(value.get('hook_adaptations'))}<h3>FÓRMULA DE CONTENIDO</h3>{_strategy_text_list(value.get('narrative_adaptations'))}<h3>CTA RECOMENDADO</h3><p>{_e(_strategy_narrative(value.get('cta_strategy')))}</p><h3>ALINEACIÓN DE OFERTA</h3><p>{_e(_strategy_narrative(value.get('offer_alignment')))}</p><h3>QUÉ PROBAR PRIMERO</h3><ol>{''.join(tests) or '<li>—</li>'}</ol><h3>FIRST CONTENT PLAN</h3>{_strategy_text_list(value.get('first_content_plan'))}<div class="actions"><button type="button" id="create-content-from-strategy">Crear contenido con esta estrategia</button></div></section>'''
 
 
 def content_pack_prompt(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis, context: dict[str, str],
@@ -1101,13 +1229,19 @@ def channel_intelligence_page(channel_id: uuid.UUID, _auth: None = Depends(requi
     latest_pack = packs[0] if packs else None
     pack_results = _content_pack_results(data, latest, latest_pack) if latest_pack else '<p class="muted">Aún no has importado contenido privado.</p>'
     advanced_playbook = _strategic_playbook_html(playbook, records_by_id) if playbook else '<p>El Playbook estratégico generado sigue disponible para operaciones cuando se necesite.</p><button type="button" id="generate-playbook" class="secondary">Generar Playbook técnico</button><p id="playbook-status" class="muted"></p>'
+    latest_strategy = _latest_personal_strategy(db, channel_id)
+    profile = latest_strategy.private_context if latest_strategy and isinstance(latest_strategy.private_context, dict) else {}
+    def profile_value(name: str) -> str: return _e(profile.get(name, ''))
+    latest_strategy_html = _personal_strategy_html(latest_strategy.strategy_json, records_by_id) if latest_strategy else ''
+    strategy_start = '<details id="strategy-flow" class="card"><summary><b>Actualizar perfil y estrategia</b></summary><div class="step-body">' if latest_strategy else '<section id="strategy-flow" class="card">'
+    strategy_end = '</div></details>' if latest_strategy else '</section>'
     content = f'''{channel_header}<section><h2>INTELIGENCIA</h2><div class="card hero"><span class="badge {'ok' if state['state'] == 'FRESH' else 'warn'}">{_e(status_text)}</span>{pending_notice}<div class="actions">{primary}</div></div></section>{_actionable_playbook(data, latest)}
 <details class="card"><summary><b>Ver análisis completo</b></summary><div class="step-body">{_channel_intelligence_results(data, latest, db)}</div></details>
-<section id="strategy-flow" class="card"><h2>ADAPTAR A MI NEGOCIO</h2><p class="muted">Tu información es privada y nunca se añade a la inteligencia global del canal.</p><form id="private-context"><label>¿Qué vendes?<br><textarea name="business" required maxlength="4000" style="min-height:80px"></textarea></label><label>¿Cuál es tu oferta?<br><textarea name="offer" required maxlength="4000" style="min-height:80px"></textarea></label><label>¿A quién vendes?<br><textarea name="audience" required maxlength="4000" style="min-height:80px"></textarea></label><label>¿Qué quieres conseguir?<br><select name="goal" required><option value="Leads">Leads</option><option value="Ventas">Ventas</option><option value="Autoridad">Autoridad</option><option value="Audiencia">Audiencia</option></select></label><label>Tono / estilo <span class="muted">(opcional)</span><br><input name="tone" maxlength="4000"></label><label>Contexto adicional <span class="muted">(opcional)</span><br><textarea name="constraints" maxlength="4000" style="min-height:80px"></textarea></label><div class="actions"><button id="generate-personal-strategy" type="button">Generar mi estrategia</button></div></form><div id="personal-strategy-result" class="card" hidden></div><p id="create-status" class="muted"></p></section>
+{latest_strategy_html}{strategy_start}<h2>ADAPTAR ESTA INTELIGENCIA A MI NEGOCIO</h2><p class="muted">Kurukin no copiará el contenido del competidor. Usará patrones respaldados por evidencia para construir una estrategia compatible con tu negocio.</p><form id="private-context"><label>¿Qué vendes?<br><textarea name="business" required maxlength="4000" style="min-height:80px">{profile_value('business')}</textarea></label><label>¿Cuál es tu oferta principal?<br><textarea name="offer" required maxlength="4000" style="min-height:80px">{profile_value('offer')}</textarea></label><label>¿A quién vendes?<br><textarea name="audience" required maxlength="4000" style="min-height:80px">{profile_value('audience')}</textarea></label><label>¿En qué mercado operas?<br><input name="market" required maxlength="4000" value="{profile_value('market')}"></label><label>¿Qué quieres conseguir?<br><select name="goal" required>{''.join(f'<option value="{choice}" {"selected" if profile.get("goal", "Leads") == choice else ""}>{choice}</option>' for choice in ('Leads', 'Ventas', 'Autoridad', 'Audiencia'))}</select></label><label>¿Qué puedes ejecutar actualmente?<br><textarea name="execution" required maxlength="4000" style="min-height:80px">{profile_value('execution')}</textarea></label><label>Tono / estilo <span class="muted">(opcional)</span><br><input name="tone" maxlength="4000" value="{profile_value('tone')}"></label><label>Restricciones <span class="muted">(opcional)</span><br><textarea name="constraints" maxlength="4000" style="min-height:80px">{profile_value('constraints')}</textarea></label><label>Contexto adicional <span class="muted">(opcional)</span><br><textarea name="additional_context" maxlength="4000" style="min-height:80px">{profile_value('additional_context')}</textarea></label><div class="actions"><button id="generate-personal-strategy" type="button">Generar mi estrategia</button></div></form><p id="strategy-status" class="muted" aria-live="polite"></p>{strategy_end}
 <details class="card step" id="create-flow"><summary><b>CREAR CONTENIDO</b></summary><div class="step-body"><p>Convierte tu estrategia privada en ideas, hooks, CTAs y guiones.</p><div class="actions"><button id="open-hormozi" type="button">Crear contenido</button></div><ol><li>Las instrucciones se copian y se abre el creador.</li><li>Descarga <code>kurukin-content-pack.json</code>.</li><li>Súbelo para ver tus ideas y guiones aquí.</li></ol><form id="content-pack-upload"><label class="dropzone">Sube <b>kurukin-content-pack.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="content-pack-file" type="file" accept=".json,application/json"></label></form><div id="content-pack-dry-run" aria-live="polite"></div></div></details>
 <section id="content-plan"><h2>IDEAS DE CONTENIDO Y GUIONES</h2><div id="content-pack-results">{pack_results}</div></section>
 <details class="card technical"><summary><b>Opciones avanzadas</b></summary><div class="step-body">{advanced_playbook}<div class="actions"><a class="button secondary" href="/admin/research/channels/{channel_id}/import">Importar transcripciones históricas</a><a class="button secondary" href="/admin/research/channels/{channel_id}/export">Exportar Research Pack</a><a class="button secondary" href="/admin/research/channels/{channel_id}/prompt">Generador legacy</a><a class="button secondary" href="/admin/system">Admin / Debug</a></div><details><summary>Detalles técnicos</summary><p>Estado interno: <code>{_e(state['state'])}</code> · hash semántico <code>{_e(state['semantic_corpus_hash'][:12])}</code> · hash de rendimiento <code>{_e(state['performance_state_hash'][:12])}</code></p></details></div></details>
-<script>(function(){{const base='/admin/research/channels/{channel_id}/intelligence',form=document.getElementById('private-context'),strategy=document.getElementById('strategy-flow'),create=document.getElementById('create-flow'),personal=document.getElementById('generate-personal-strategy'),adapt=document.getElementById('adapt-business'),technical=document.getElementById('generate-playbook');if(adapt)adapt.onclick=()=>strategy.scrollIntoView({{behavior:'smooth',block:'start'}});if(technical)technical.onclick=async()=>{{const r=await fetch(base+'/playbook/generate',{{method:'POST'}}),x=await r.json();if(x.ok)location.reload();else document.getElementById('playbook-status').textContent=x.error||'No se pudo generar el Playbook.'}};function contextData(){{return new FormData(form)}}function text(value){{return Array.isArray(value)?value.join(' · '):(value||'—')}}function line(label,value){{return '<p><b>'+label+'</b><br>'+text(value)+'</p>'}}if(personal)personal.onclick=async()=>{{const r=await fetch(base+'/personal-strategy',{{method:'POST',body:contextData()}}),x=await r.json();if(!r.ok||!x.ok){{document.getElementById('create-status').textContent=x.error||'Completa los campos requeridos.';return}}const s=x.strategy,box=document.getElementById('personal-strategy-result');box.hidden=false;box.innerHTML='<h2>TU ESTRATEGIA</h2>'+line('Qué patrones usar',s.selected_mechanisms)+line('Qué NO copiar',s.risks_or_constraints)+line('Qué dolores trabajar',s.recommended_content_pillars)+line('Qué deseos activar',s.content_positioning)+line('Qué hook families adaptar',s.recommended_hook_mix)+line('Qué content formula usar',s.recommended_narrative_mix)+line('Qué CTA strategy usar',s.recommended_cta_strategy)+'<div class="actions"><button id="create-content-from-strategy" type="button">Crear contenido</button></div>';document.getElementById('create-content-from-strategy').onclick=()=>{{create.open=true;create.scrollIntoView({{behavior:'smooth',block:'start'}})}}}};document.getElementById('open-hormozi').onclick=async()=>{{const r=await fetch(base+'/content-pack/prompt',{{method:'POST',body:contextData()}});if(!r.ok){{document.getElementById('create-status').textContent='Genera primero tu estrategia y completa los campos requeridos.';return}}await navigator.clipboard.writeText(await r.text());window.open('https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m','_blank','noopener');document.getElementById('create-status').textContent='Instrucciones copiadas. El creador se abrió en otra pestaña.'}};async function dryRun(file){{const body=contextData();body.append('file',file,file.name);const r=await fetch(base+'/content-pack/import/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('content-pack-dry-run');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+x.errors.map(v=>'<li>'+v+'</li>').join('')+'</ul></div>';return}}box.innerHTML='<div class="card"><h3>Listo para confirmar</h3><p>Ideas: '+x.summary.ideas+' · Guiones: '+x.summary.scripts+'</p><button id="confirm-content-pack">Confirmar contenido</button></div>';document.getElementById('confirm-content-pack').onclick=async()=>{{const body=new FormData();body.append('token',x.token);const confirmed=await fetch(base+'/content-pack/import/confirm',{{method:'POST',body}});if((await confirmed.json()).ok)location.reload()}}}}document.getElementById('content-pack-file').addEventListener('change',e=>{{if(e.target.files[0])dryRun(e.target.files[0])}})}})();</script>'''
+<script>(function(){{const base='/admin/research/channels/{channel_id}/intelligence',form=document.getElementById('private-context'),strategy=document.getElementById('strategy-flow'),create=document.getElementById('create-flow'),personal=document.getElementById('generate-personal-strategy'),adapt=document.getElementById('adapt-business'),technical=document.getElementById('generate-playbook'),status=document.getElementById('strategy-status');if(adapt)adapt.onclick=()=>{{strategy.open=true;strategy.scrollIntoView({{behavior:'smooth',block:'start'}})}};if(technical)technical.onclick=async()=>{{const r=await fetch(base+'/playbook/generate',{{method:'POST'}}),x=await r.json();if(x.ok)location.reload();else document.getElementById('playbook-status').textContent=x.error||'No se pudo generar el Playbook.'}};function contextData(){{return new FormData(form)}}if(personal)personal.onclick=async()=>{{status.textContent='Generando estrategia...';personal.disabled=true;const r=await fetch(base+'/personal-strategy',{{method:'POST',body:contextData()}}),x=await r.json();if(!r.ok||!x.ok){{status.textContent=(x.error||'Strategy failed — retry');personal.disabled=false;return}}status.textContent='Strategy ready';location.reload()}};const createFromStrategy=document.getElementById('create-content-from-strategy');if(createFromStrategy)createFromStrategy.onclick=()=>{{create.open=true;create.scrollIntoView({{behavior:'smooth',block:'start'}})}};document.getElementById('open-hormozi').onclick=async()=>{{const r=await fetch(base+'/content-pack/prompt',{{method:'POST',body:contextData()}});if(!r.ok){{status.textContent='Genera primero tu estrategia y completa los campos requeridos.';return}}await navigator.clipboard.writeText(await r.text());window.open('https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m','_blank','noopener');status.textContent='Instrucciones copiadas. El creador se abrió en otra pestaña.'}};async function dryRun(file){{const body=contextData();body.append('file',file,file.name);const r=await fetch(base+'/content-pack/import/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('content-pack-dry-run');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+x.errors.map(v=>'<li>'+v+'</li>').join('')+'</ul></div>';return}}box.innerHTML='<div class="card"><h3>Listo para confirmar</h3><p>Ideas: '+x.summary.ideas+' · Guiones: '+x.summary.scripts+'</p><button id="confirm-content-pack">Confirmar contenido</button></div>';document.getElementById('confirm-content-pack').onclick=async()=>{{const body=new FormData();body.append('token',x.token);const confirmed=await fetch(base+'/content-pack/import/confirm',{{method:'POST',body}});if((await confirmed.json()).ok)location.reload()}}}}document.getElementById('content-pack-file').addEventListener('change',e=>{{if(e.target.files[0])dryRun(e.target.files[0])}})}})();</script>'''
     return _layout('Inteligencia del canal', content)
 
 
@@ -1316,7 +1450,8 @@ def channel_update_import_confirm(channel_id: uuid.UUID, token: str = Form(...),
 
 @router.post('/research/channels/{channel_id}/intelligence/content-pack/prompt', response_class=PlainTextResponse)
 def content_pack_prompt_text(channel_id: uuid.UUID, business: str = Form(...), offer: str = Form(...), audience: str = Form(...),
-                             goal: str = Form(...), tone: str = Form(...), constraints: str = Form(''),
+                             goal: str = Form(...), tone: str = Form(...), constraints: str = Form(''), market: str = Form(''),
+                             execution: str = Form(''), additional_context: str = Form(''),
                              _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     data = _channel_or_404(db, channel_id)
     analysis = db.scalar(select(ChannelIntelligenceAnalysis).where(ChannelIntelligenceAnalysis.channel_id == channel_id).order_by(
@@ -1324,9 +1459,9 @@ def content_pack_prompt_text(channel_id: uuid.UUID, business: str = Form(...), o
     if analysis is None:
         raise HTTPException(409, 'Import Channel Intelligence before creating content')
     # This request only composes a prompt. It intentionally has no database write.
-    context = _private_context_from_form(business, offer, audience, goal, tone, constraints)
-    saved = db.scalar(select(PrivatePersonalStrategy).where(PrivatePersonalStrategy.channel_id == channel_id,
-        PrivatePersonalStrategy.private_context == context).order_by(PrivatePersonalStrategy.created_at.desc()))
+    context = _private_context_from_form(business, offer, audience, goal, tone, constraints, market=market,
+                                         execution=execution, additional_context=additional_context)
+    saved = _latest_personal_strategy(db, channel_id)
     return PlainTextResponse(content_pack_prompt(data, analysis, context, saved.strategy_json if saved else None))
 
 
@@ -1347,10 +1482,12 @@ def _analysis_video_ids(db: Session, analysis: ChannelIntelligenceAnalysis) -> s
 @router.post('/research/channels/{channel_id}/intelligence/content-pack/import/dry-run')
 async def content_pack_import_dry_run(channel_id: uuid.UUID, file: UploadFile = File(...), business: str = Form(...),
                                       offer: str = Form(...), audience: str = Form(...), goal: str = Form(...), tone: str = Form(...),
-                                      constraints: str = Form(''), _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+                                      constraints: str = Form(''), market: str = Form(''), execution: str = Form(''),
+                                      additional_context: str = Form(''), _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     data = _channel_or_404(db, channel_id)
     analysis = _content_pack_analysis_or_404(db, channel_id)
-    context = _private_context_from_form(business, offer, audience, goal, tone, constraints)
+    context = _private_context_from_form(business, offer, audience, goal, tone, constraints, market=market,
+                                         execution=execution, additional_context=additional_context)
     raw = await file.read(CHANNEL_INTELLIGENCE_IMPORT_MAX_BYTES + 1)
     if len(raw) > CHANNEL_INTELLIGENCE_IMPORT_MAX_BYTES:
         raise HTTPException(413, 'Content Pack file exceeds 5 MiB')

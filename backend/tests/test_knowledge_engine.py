@@ -11,6 +11,7 @@ from app.channel_intelligence_contract import canonical_json_sha256
 from app.channel_update_contract import CHANNEL_UPDATE_PROMPT_VERSION, CHANNEL_UPDATE_SCHEMA_VERSION
 from app.knowledge_engine import ANALYSIS_CONTRACT_VERSION, freshness, incremental_pack, performance_state_hash, semantic_corpus_hash, semantic_video
 from app.models import Analysis, ChannelIntelligenceAnalysis, ChannelStrategicPlaybook, ChannelVideoIntelligence
+from app import strategist
 from app.strategist import PLAYBOOK_SCHEMA_VERSION, get_or_create_playbook, personal_strategy_input
 from tests.test_research_backoffice import _channel_analysis_payload, corpus, make_video
 
@@ -86,7 +87,20 @@ def test_playbook_cache_and_private_strategy_boundary(db):
     second, cached = get_or_create_playbook(db, channel_id=channel.id, analysis=analysis, records=records, videos=videos, provider='fake', model='fake', generate=generate)
     assert not reused and cached and first.id == second.id and len(calls) == 1
     private = personal_strategy_input(first.payload_json, {'business': 'private business', 'offer': 'private offer'})
-    assert 'private business' in private['private_business_context']['business']
+    assert 'private business' in private['private_business_profile']['business']
+    assert private['diagnostics']['raw_research_pack_included'] is False
+    assert private['diagnostics']['raw_transcripts_included'] == 0
     assert 'private business' not in first.payload_json.get('executive_thesis', '')
     prompt = admin.content_pack_prompt(data, analysis, {'business': 'private business', 'offer': 'private offer', 'audience': 'a', 'goal': 'g', 'tone': 't', 'constraints': ''}, private)
     assert 'private business' in prompt and 'Research Pack' not in prompt
+
+
+def test_strategist_reads_nested_responses_output_text(monkeypatch):
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {'output': [{'type': 'reasoning', 'content': []}, {'type': 'message', 'content': [
+                {'type': 'output_text', 'text': '{"schema":"test-contract"}'}]}]}
+    monkeypatch.setattr(strategist.httpx, 'post', lambda *args, **kwargs: Response())
+    assert strategist._openai_json({}, model='test', api_key='test', contract='test-contract', prompt='test') == {
+        'schema': 'test-contract'}

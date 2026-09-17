@@ -3,6 +3,7 @@ import json
 import zipfile
 from datetime import datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -13,7 +14,8 @@ from sqlalchemy import select
 from app import admin
 from app.config import get_settings
 from app.main import app
-from app.models import Analysis, Channel, ChannelIntelligenceAnalysis, ChannelVideoIntelligence, PrivateContentPack, Transcript, Video, VideoSnapshot
+from app.models import (Analysis, Channel, ChannelIntelligenceAnalysis, ChannelStrategicPlaybook, ChannelVideoIntelligence,
+                        PrivateContentPack, PrivatePersonalStrategy, Transcript, Video, VideoSnapshot)
 
 
 def make_channel(db, username='creator', nickname='Creator', author_id='stable-creator'):
@@ -255,7 +257,7 @@ def test_external_ai_handoff_is_an_explicit_mobile_safe_three_step_flow(db):
     assert '<details class="card technical" id="channel-prompt-details" open>' not in page
     assert 'No se pudieron copiar automáticamente. Abre “Ver instrucciones”' in page
     assert '@media(max-width:650px)' in page and '.actions>*{width:100%;text-align:center}' in admin._layout('test', '').body.decode()
-    assert 'INTERNAL RESEARCH BACKOFFICE v1.8 · SCI v1 · STRATEGIST v1 · CREATE v1' in page
+    assert 'INTERNAL RESEARCH BACKOFFICE v1.9 · SCI v1 · STRATEGIST v2 · CREATE v1' in page
 
 
 def test_external_ai_handoff_update_keeps_current_intelligence_separate_from_new_import(db):
@@ -274,6 +276,122 @@ def test_external_ai_handoff_update_keeps_current_intelligence_separate_from_new
     assert f'href="/admin/research/channels/{channel.id}/intelligence/update.zip"' in page
     assert "base='/admin/research/channels/%s/intelligence/update/import'" % channel.id in page
     assert 'Importar inteligencia terminada' not in page
+
+
+def _v2_strategy(evidence_id):
+    pattern = {
+        'name': 'Problema específico → explicación útil', 'source_pattern': 'Reframe de dolor concreto',
+        'why_it_works_in_source': 'Hace visible una tensión reconocible.', 'fit_for_business': 'Encaja con la oferta.',
+        'adaptation': 'Empieza con el problema cotidiano de tu cliente.', 'what_not_to_copy': 'No copies claims or identity.',
+        'recommended_use': 'Úsalo en videos de descubrimiento.', 'evidence_video_ids': [evidence_id], 'confidence': 'media',
+    }
+    return {
+        'schema': 'kurukin-personal-strategy-v2', 'strategic_fit': 'Buen ajuste para una oferta consultiva.',
+        'patterns_to_adapt': [pattern], 'patterns_to_avoid': ['No copiar afirmaciones del creador.'],
+        'audience_opportunities': ['Hablar del problema antes de presentar la oferta.'],
+        'pain_opportunities': ['Fricción concreta'], 'desire_opportunities': ['Claridad'],
+        'hook_adaptations': ['Si te pasa X, empieza por Y.'], 'narrative_adaptations': ['Problema → mecanismo → siguiente paso'],
+        'cta_strategy': 'Invita a una conversación diagnóstica.', 'offer_alignment': 'Conecta el diagnóstico con la oferta.',
+        'content_pillars': ['Diagnóstico'],
+        'test_priorities': [{'priority': '1', 'hypothesis': 'El dolor específico atrae comentarios cualificados.',
+                             'what_to_test': 'Tres variaciones del mismo dolor.', 'success_signal': 'Más comentarios cualificados.',
+                             'source_patterns': ['Reframe de dolor concreto'], 'evidence_video_ids': [evidence_id]}],
+        'first_content_plan': ['Publica tres videos del mismo dolor con hooks distintos.'],
+        'executive_recommendation': 'Adapta el mecanismo, no la identidad del creador.',
+    }
+
+
+def _private_playbook(db, channel, analysis, evidence_id):
+    row = ChannelStrategicPlaybook(
+        channel_id=channel.id, source_analysis_id=analysis.id, source_payload_sha=analysis.payload_sha256,
+        semantic_corpus_hash=analysis.semantic_corpus_hash, performance_state_hash=analysis.performance_state_hash,
+        schema_version='kurukin-channel-playbook-v1', prompt_version='kurukin-channel-playbook-prompt-v1',
+        provider='test', model='test', payload_sha256='f' * 64,
+        payload_json={'schema': 'kurukin-channel-playbook-v1', 'executive_thesis': 'Public thesis',
+                      'dominant_formula': 'Problem → explanation',
+                      'top_moves': [{'name': 'Reframe de dolor concreto', 'why_it_works': 'Public evidence',
+                                     'evidence_video_ids': [evidence_id]}]},
+    )
+    db.add(row); db.commit()
+    return row
+
+
+def test_v19_intelligence_hierarchy_prioritizes_thesis_mechanisms_and_collapsed_evidence(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    evidence_id = sci['videos'][0]['video_id']
+    expanded = json.loads(json.dumps(sci))
+    expanded['channel_intelligence']['winning_patterns'] = [
+        {'name': f'Mecanismo {number}', 'description': f'Explicación {number}',
+         'evidence': [{'claim': 'Prueba pública.', 'video_ids': [evidence_id]}]}
+        for number in range(1, 6)
+    ]
+    expanded['channel_intelligence']['pains'] = [{'name': 'Dolor ' + str(number), 'description': ''} for number in range(7)]
+    expanded['channel_intelligence']['desires'] = [{'name': 'Deseo ' + str(number), 'description': ''} for number in range(7)]
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
+    executive = page[:page.index('Ver análisis completo')]
+    hierarchy = admin._actionable_playbook(data, SimpleNamespace(channel_intelligence=expanded['channel_intelligence'], selection_mode='all'))
+    assert executive.index('¿POR QUÉ FUNCIONA ESTE CANAL?') < executive.index('MECANISMOS PRINCIPALES')
+    assert executive.index('¿QUÉ QUIERES HACER CON ESTO?') < executive.index('MECANISMOS PRINCIPALES')
+    assert hierarchy.count('class="mechanism-rank"') == 5
+    assert 'DOLORES QUE ACTIVAN' in hierarchy and 'DESEOS QUE ACTIVAN' in hierarchy and 'Ver todos' in hierarchy
+    assert '<details class="evidence-detail"><summary>Ver evidencia</summary>' in hierarchy
+    assert '<details class="card"><summary><b>Ver análisis completo</b></summary>' in page
+    assert '@media(max-width:650px)' in page and 'compact-columns' in page
+
+
+def test_personal_strategy_v2_validates_persists_private_context_and_renders(db, monkeypatch):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    evidence_id = sci['videos'][0]['video_id']
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis))
+    _private_playbook(db, channel, analysis, evidence_id)
+    strategy = _v2_strategy(evidence_id)
+    monkeypatch.setattr(admin, 'configured_personal_generator', lambda _settings: lambda payload: strategy)
+    response = admin.generate_personal_strategy(channel.id, 'Consultoría privada', 'Diagnóstico', 'Operadores', 'España',
+                                                'Leads', 'Tres videos por semana', 'Directo', '', 'Sin promesas', db=db)
+    assert b'"ok":true' in response.body
+    stored = db.scalar(select(PrivatePersonalStrategy))
+    assert stored.strategy_json == strategy and stored.private_context['business'] == 'Consultoría privada'
+    assert 'Consultoría privada' not in db.scalar(select(ChannelStrategicPlaybook)).payload_json['executive_thesis']
+    page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
+    assert 'TU ESTRATEGIA' in page and 'QUÉ ADAPTAR' in page and 'QUÉ NO COPIAR' in page
+    assert 'QUÉ PROBAR PRIMERO' in page and 'FIRST CONTENT PLAN' in page
+    assert 'Crear contenido con esta estrategia' in page
+    assert 'Mecanismo 6' not in page
+
+
+def test_personal_strategy_v1_is_readable_and_invalid_v2_is_not_persisted(db, monkeypatch):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    evidence_id = sci['videos'][0]['video_id']
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis)); playbook = _private_playbook(db, channel, analysis, evidence_id)
+    legacy = {'schema': 'kurukin-personal-strategy-v1', 'business_summary': 'Legacy strategy', 'selected_mechanisms': ['Legacy move'],
+              'content_positioning': [], 'recommended_content_pillars': [], 'recommended_hook_mix': [],
+              'recommended_narrative_mix': [], 'recommended_cta_strategy': 'CTA', 'recommended_experiments': [],
+              'risks_or_constraints': [], 'content_brief_for_creator': 'Legacy brief'}
+    db.add(PrivatePersonalStrategy(channel_id=channel.id, playbook_id=playbook.id, payload_sha256='e' * 64,
+                                   private_context={'business': 'Legacy'}, strategy_json=legacy)); db.commit()
+    page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
+    assert 'Estrategia histórica V1: se conserva legible' in page and 'Legacy brief' in page
+    bad = _v2_strategy(evidence_id); bad['patterns_to_adapt'][0].pop('evidence_video_ids')
+    assert admin.validate_personal_strategy(bad, known_video_ids={evidence_id})
+    monkeypatch.setattr(admin, 'configured_personal_generator', lambda _settings: lambda payload: bad)
+    response = admin.generate_personal_strategy(channel.id, 'Negocio', 'Oferta', 'Audiencia', 'México', 'Leads', 'Vídeos', '', '', '', db=db)
+    assert response.status_code == 503
+    assert len(list(db.scalars(select(PrivatePersonalStrategy)))) == 1
 
 
 def _content_pack(channel, evidence_id, pattern='Pain → meaning → hope'):
@@ -355,7 +473,7 @@ def test_product_ux_v1_human_journey_and_advanced_separation(db, monkeypatch):
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'INTERNAL RESEARCH BACKOFFICE v1.8 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build 193a52f' in page
+        assert 'INTERNAL RESEARCH BACKOFFICE v1.9 · SCI v1 · STRATEGIST v2 · CREATE v1 · Build 193a52f' in page
         assert '1&nbsp; Canal' in page and '4&nbsp; Contenido' in page
     assert 'Canales' in index and 'Siguiente paso' in index
     assert 'channel-list' in index and '<table>' not in index
@@ -397,7 +515,7 @@ def test_product_ux_fresh_executive_first_private_and_create_flow(db):
     assert 'FÓRMULA DOMINANTE' in executive
     assert 'Adaptar esto a mi negocio' in executive
     assert 'NO_INTELLIGENCE' not in executive and 'SEMANTIC_DELTA' not in executive
-    assert 'TU ESTRATEGIA' in page and 'Crear contenido' in page
+    assert 'ADAPTAR ESTA INTELIGENCIA A MI NEGOCIO' in page and 'Crear contenido' in page
     assert 'private-context' in page and 'name="tone"' in page
     assert 'Auto Curator' not in page
     assert admin._private_context_from_form('Producto', 'Oferta', 'Audiencia', 'Leads', '', '')['tone'] == ''
