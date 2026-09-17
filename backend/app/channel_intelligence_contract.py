@@ -39,7 +39,8 @@ VIDEO_INTELLIGENCE_SCHEMA: dict[str, Any] = {
 }
 PATTERN_SCHEMA: dict[str, Any] = {
     'type': 'object', 'additionalProperties': False, 'required': ['name', 'description', 'evidence'],
-    'properties': {'name': _string(160), 'description': _string(1400), 'evidence': {'type': 'array', 'minItems': 1, 'maxItems': 30, 'items': EVIDENCE_SCHEMA}},
+    'properties': {'name': _string(160), 'description': _string(1400), 'why_it_matters': _string(1400),
+                   'evidence': {'type': 'array', 'minItems': 1, 'maxItems': 30, 'items': EVIDENCE_SCHEMA}},
 }
 CHANNEL_INTELLIGENCE_SCHEMA: dict[str, Any] = {
     'type': 'object', 'additionalProperties': False,

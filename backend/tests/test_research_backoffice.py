@@ -190,7 +190,10 @@ def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(
     assert value == payload and errors == [] and mode == 'all' and status == 'NEW'
     prompt = admin.channel_intelligence_prompt(data)
     assert 'videos[]` MUST contain exactly N video objects' in prompt
-    assert 'kurukin-channel-analysis.json' in prompt
+    expected_filename = admin.channel_analysis_filename(channel.username, payload['research_pack']['hash'])
+    assert f'Required output filename: `{expected_filename}`' in prompt
+    assert f'Create and attach/downloadable file: `{expected_filename}`' in prompt
+    assert 'DO NOT repeat or paraphrase `description` inside `why_it_matters`.' in prompt
     assert 'video_intelligence' in prompt and 'performance_interpretation' in prompt
 
     token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
@@ -241,6 +244,8 @@ def test_product_lite_channel_workflow_and_schema_drift(db):
 def test_external_ai_handoff_is_an_explicit_mobile_safe_three_step_flow(db):
     channel, _videos = corpus(db)
     page = admin.channel_intelligence_prompt_page(channel.id, db=db).body.decode()
+    data = admin._summary_for_channel(db, channel.id)
+    expected_filename = admin.channel_analysis_filename(channel.username, admin.research_pack_hash(data, 'all'))
     hormozi_url = 'https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m'
 
     assert 'Paso 1' in page and 'Preparar evidencia' in page
@@ -251,15 +256,56 @@ def test_external_ai_handoff_is_an_explicit_mobile_safe_three_step_flow(db):
     assert hormozi_url in page
     assert 'Copiar instrucciones y abrir Alex Hormozi GPT' in page
     assert page.index("window.open(gptUrl,'_blank','noopener')") < page.index('copyCurrentPrompt().then')
-    assert 'kurukin-channel-analysis.json' in page
-    assert 'Seleccionar kurukin-channel-analysis.json' in page
+    assert page.count(expected_filename) >= 4
+    assert f'Required output filename: `{expected_filename}`' in page
+    assert 'La IA debe devolverte:' in page and f'Seleccionar {expected_filename}' in page
     assert 'id="analysis-upload"' in page
     assert page.count('>Copiar instrucciones<') >= 2
     assert '<details class="card technical" id="channel-prompt-details">' in page
     assert '<details class="card technical" id="channel-prompt-details" open>' not in page
     assert 'No se pudieron copiar automáticamente. Abre “Ver instrucciones”' in page
-    assert '@media(max-width:650px)' in page and '.actions>*{width:100%;text-align:center}' in admin._layout('test', '').body.decode()
-    assert 'KURUKIN PRODUCT LITE v1 · SCI v1' in page
+    layout = admin._layout('test', '').body.decode()
+    assert '@media(max-width:650px)' in page and '.actions>*{width:100%;text-align:center}' in layout
+    assert 'class="channel-context"' in page and 'Trabajando en:' in page
+    assert f'@{channel.username}' in page and channel.nickname in page
+    assert '@media(max-width:650px){.channel-context' in layout
+    assert 'KURUKIN PRODUCT LITE v1.1 · SCI v1' in page
+
+
+def test_channel_context_is_visible_on_product_lite_channel_screens(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    payload = _channel_analysis_payload(data)
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, payload, 'all', admin.canonical_json_sha256(payload), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis))
+
+    for page in (
+        admin.channel_intelligence_page(channel.id, db=db).body.decode(),
+        admin.channel_intelligence_detail(channel.id, analysis.id, db=db).body.decode(),
+    ):
+        assert 'class="channel-context"' in page
+        assert 'Trabajando en:' in page
+        assert f'@{channel.username}' in page and channel.nickname in page
+
+
+def test_channel_analysis_filename_sanitizes_username_and_uses_short_pack_hash():
+    pack_hash = '1e024284' + 'a' * 56
+    assert admin.channel_analysis_filename('@constela_y_sana', pack_hash) == (
+        'kurukin-channel-analysis-constela_y_sana-1e024284.json')
+    assert admin.channel_analysis_filename('@Constela/y sana!', pack_hash) == (
+        'kurukin-channel-analysis-constela-y-sana-1e024284.json')
+
+
+def test_channel_intelligence_import_ignores_the_uploaded_filename(db):
+    channel, _videos = corpus(db)
+    payload = _channel_analysis_payload(admin._summary_for_channel(db, channel.id))
+    upload = UploadFile(filename='renamed-by-browser.json', file=io.BytesIO(json.dumps(payload).encode()))
+
+    response = asyncio.run(admin.channel_intelligence_import_dry_run(channel.id, upload, db=db))
+
+    assert response.status_code == 200 and b'"ok":true' in response.body
 
 
 def test_external_ai_handoff_update_keeps_current_intelligence_separate_from_new_import(db):
@@ -277,6 +323,7 @@ def test_external_ai_handoff_update_keeps_current_intelligence_separate_from_new
     assert 'Paso 1' in page and 'Paso 2' in page and 'Paso 3' in page
     assert f'href="/admin/research/channels/{channel.id}/intelligence/update.zip"' in page
     assert "base='/admin/research/channels/%s/intelligence/update/import'" % channel.id in page
+    assert 'class="channel-context"' in page and f'@{channel.username}' in page and channel.nickname in page
     assert 'Importar inteligencia terminada' not in page
 
 
@@ -344,6 +391,43 @@ def test_v19_intelligence_hierarchy_prioritizes_thesis_mechanisms_and_collapsed_
     assert '<details class="evidence-detail"><summary>Ver evidencia</summary>' in hierarchy
     assert '<details class="card"><summary><b>Ver análisis completo</b></summary>' in page
     assert '@media(max-width:650px)' in page and 'compact-columns' in page
+
+
+def test_mechanism_renderer_suppresses_duplicate_why_it_matters_and_keeps_distinct_copy(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    evidence_id = admin._selection(data, 'all')[0]['video_id']
+    base = {
+        'summary': 'Resumen.', 'pains': [], 'desires': [], 'hooks': [], 'topics': [], 'narratives': [],
+        'repetition_clusters': [], 'ctas': [], 'offers': [],
+    }
+    duplicated = {**base, 'winning_patterns': [{
+        'name': 'Mecanismo duplicado', 'description': 'El patrón más consistente.',
+        'why_it_matters': ' el patrón más consistente! ',
+        'evidence': [{'claim': 'Prueba.', 'video_ids': [evidence_id]}],
+    }]}
+    distinct = {**base, 'winning_patterns': [{
+        'name': 'Mecanismo distinto', 'description': 'Convierte una idea abstracta en una acción concreta.',
+        'why_it_matters': 'Facilita que el contenido sea aplicable, memorable y compartible.',
+        'evidence': [{'claim': 'Prueba.', 'video_ids': [evidence_id]}],
+    }]}
+
+    duplicate_html = admin._actionable_playbook(data, SimpleNamespace(channel_intelligence=duplicated, selection_mode='all'))
+    distinct_html = admin._actionable_playbook(data, SimpleNamespace(channel_intelligence=distinct, selection_mode='all'))
+
+    assert duplicate_html.count('El patrón más consistente.') == 1
+    assert '<b>Por qué importa:</b>' not in duplicate_html
+    assert '<b>Por qué importa:</b> Facilita que el contenido sea aplicable, memorable y compartible.' in distinct_html
+
+
+def test_evidence_summary_uses_natural_spanish_video_pluralization():
+    one = {'only': {'views': 12_200}}
+    many = {'one': {'views': 100}, 'two': {'views': 200}}
+    one_item = {'evidence': [{'video_ids': ['only']}]}
+    many_item = {'evidence': [{'video_ids': ['one', 'two']}]}
+
+    assert admin._proof_summary(one_item, one) == '1 video con evidencia · mejor ejemplo 12,200 vistas'
+    assert admin._proof_summary(many_item, many) == '2 videos con evidencia · mejor ejemplo 200 vistas'
 
 
 def test_personal_strategy_v2_validates_persists_private_context_and_renders(db, monkeypatch):
@@ -537,7 +621,7 @@ def test_product_lite_marker_and_advanced_separation(db, monkeypatch):
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'KURUKIN PRODUCT LITE v1 · SCI v1 · Build 193a52f' in page
+        assert 'KURUKIN PRODUCT LITE v1.1 · SCI v1 · Build 193a52f' in page
         assert '1&nbsp; CANAL' in page and '3&nbsp; USAR INTELIGENCIA' in page
     assert 'Canales' in index and 'Siguiente paso' in index
     assert 'channel-list' in index and '<table>' not in index

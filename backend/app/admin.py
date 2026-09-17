@@ -13,6 +13,7 @@ import re
 import secrets
 import threading
 import time
+import unicodedata
 import uuid
 import zipfile
 from dataclasses import dataclass
@@ -118,7 +119,8 @@ def _layout(title: str, content: str, *, product_journey: bool = True) -> HTMLRe
 :root{{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fa}}
 body{{margin:0}}main{{max-width:1000px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:16px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}h3{{margin:18px 0 8px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:12px;padding:18px;margin:14px 0}}.hero{{border-color:#b8d0f3}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY,.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;display:inline-block;min-height:44px;box-sizing:border-box}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:10px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:160px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}.step{{padding:0;overflow:hidden}}.step>summary{{cursor:pointer;list-style:none;padding:17px;font-size:1.05rem;min-height:24px}}.step>summary::-webkit-details-marker{{display:none}}.step-body{{padding:0 17px 17px}}.dropzone{{display:block;border:2px dashed #8ba3bd;border-radius:9px;padding:28px 16px;text-align:center;background:#f8fafc;cursor:pointer}}.dropzone input{{display:none}}.error-box{{background:#fee2e2;color:#7f1d1d;padding:12px;border-radius:7px}}.video-card{{border-left:4px solid #1659b7}}.channel-list{{display:grid;gap:10px}}.channel-list .card{{margin:0}}.journey{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px}}.journey span{{padding:6px 10px;background:#e7edf3;border-radius:999px;font-size:.84rem;font-weight:600}}.eyebrow{{color:#526174;font-weight:700;font-size:.78rem;letter-spacing:.06em}}.insight-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}.insight-grid .card{{margin:0}}.technical{{font-size:.9rem}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}header .muted{{display:block;margin-top:6px}}.actions{{display:grid}}.actions>*{{width:100%;text-align:center}}.journey{{display:grid;grid-template-columns:1fr 1fr;gap:6px}}.journey span{{text-align:center}}.stat-grid,.insight-grid{{grid-template-columns:1fr}}}}
 .handoff-step{{border-left:4px solid #1659b7}}.handoff-step h2{{margin-top:4px}}.handoff-status{{min-height:1.4em}}.required-filename{{display:inline-block;background:#eff6ff;border:1px solid #b8d0f3;border-radius:6px;padding:4px 7px;font-size:1em;font-weight:700;overflow-wrap:anywhere}}.current-intelligence{{display:grid;gap:6px}}.executive-thesis{{padding:28px;border:0;border-radius:14px;background:linear-gradient(135deg,#eaf3ff,#fff)}}.formula{{font-size:1.15rem;line-height:1.7}}.decision-cta{{padding:22px;border:1px solid #b8d0f3;border-radius:12px;margin:20px 0 28px}}.mechanism-list{{display:grid;gap:0;border-top:1px solid #dce3eb}}.mechanism{{padding:20px 0;border-bottom:1px solid #dce3eb}}.mechanism-rank{{font-size:1.5rem;font-weight:800;color:#1659b7;margin-right:10px}}.proof-summary{{color:#526174;font-size:.9rem}}.evidence-detail{{margin-top:12px;background:#f8fafc;border-radius:8px;padding:10px}}.evidence-detail summary{{cursor:pointer;font-weight:700}}.compact-columns{{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin:20px 0}}.compact-list{{margin:8px 0;padding-left:20px}}.compact-list li{{margin:5px 0}}.secondary-intelligence{{margin:10px 0;border:1px solid #e7edf3;border-radius:8px;padding:12px}}.strategy-result{{margin:26px 0;padding:24px;border:1px solid #b8d0f3;border-radius:14px}}.strategy-recommendation{{padding:16px 0;border-bottom:1px solid #e7edf3}}.strategy-recommendation:last-child{{border-bottom:0}}@media(max-width:650px){{.handoff-step{{padding:16px}}.dropzone{{padding:24px 12px}}.compact-columns{{grid-template-columns:1fr;gap:12px}}.executive-thesis{{padding:20px}}.decision-cta{{padding:18px}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">KURUKIN PRODUCT LITE v1 · SCI v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
+.channel-context{{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;margin:0 0 18px;padding:10px 12px;background:#eff6ff;border:1px solid #b8d0f3;border-radius:8px}}.channel-context-label{{color:#526174;font-size:.84rem;font-weight:700}}@media(max-width:650px){{.channel-context{{align-items:flex-start;display:block;line-height:1.55}}.channel-context-label{{display:block}}}}
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">KURUKIN PRODUCT LITE v1.1 · SCI v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -510,6 +512,20 @@ def research_pack_hash(data: dict[str, Any], mode: str) -> str:
     })
 
 
+def channel_analysis_filename(username: str, pack_hash: str) -> str:
+    """Human-friendly output filename; import validity never depends on it."""
+    safe_username = re.sub(r'[^a-z0-9_-]+', '-', username.lstrip('@').casefold()).strip('-_') or 'channel'
+    return f'kurukin-channel-analysis-{safe_username}-{pack_hash[:8]}.json'
+
+
+def _channel_context(username: str, nickname: str | None = None) -> str:
+    """Persistent identity for every normal Product Lite channel subflow."""
+    nickname_html = f'<span>· {_e(nickname)}</span>' if nickname else ''
+    return (f'<section class="channel-context" aria-label="Canal actual">'
+            f'<span class="channel-context-label">Trabajando en:</span> '
+            f'<b>@{_e(username)}</b>{nickname_html}</section>')
+
+
 def _research_pack_by_hash(data: dict[str, Any], value: str) -> tuple[str, list[dict[str, Any]]] | None:
     """Resolve an import hash to the currently reproducible exported pack."""
     for mode in ('recommended', 'all', 'top25', 'top50', 'top100'):
@@ -677,6 +693,7 @@ def channel_intelligence_prompt(data: dict[str, Any], mode: str = 'all') -> str:
     if not records:
         raise HTTPException(422, 'The selected Research Pack has no resolved transcript videos')
     pack_hash = research_pack_hash(data, mode)
+    expected_filename = channel_analysis_filename(data['channel'].username, pack_hash)
     schema = json.dumps(CHANNEL_ANALYSIS_JSON_SCHEMA, ensure_ascii=False, indent=2)
     return f'''# Kurukin Structured Channel Intelligence v1
 
@@ -684,7 +701,7 @@ YOUR TASK IS NOT TO WRITE A REPORT IN CHAT.
 
 YOUR TASK IS TO CREATE A FILE.
 
-Required output filename: `kurukin-channel-analysis.json`
+Required output filename: `{expected_filename}`
 
 The file must be valid JSON matching EXACTLY the JSON Schema contained below. Do NOT write Markdown. Do NOT paste the complete JSON as the normal chat response. Do NOT rename schema fields.
 
@@ -700,6 +717,15 @@ For a low-information video use `analysis_status = insufficient_content`; do not
 
 Every meaningful channel-level insight must reference evidence video IDs. Creator claims are not externally verified facts. Transcripts may contain ASR/manual errors.
 
+For every channel-level pattern:
+- `description` explains WHAT the pattern or mechanism is and HOW it appears.
+- `why_it_matters` explains the DISTINCT strategic implication: why a marketer or creator should care, which behavior or content principle it suggests, or what makes the mechanism useful.
+- DO NOT repeat or paraphrase `description` inside `why_it_matters`.
+
+Example:
+- `description`: "Convierte una idea espiritual abstracta en una acción concreta."
+- `why_it_matters`: "Reducir la distancia entre concepto y acción hace que el contenido sea más fácil de aplicar, recordar y compartir."
+
 Short canonical root example (structural illustration only; the supplied JSON Schema is authoritative):
 {{
   "schema": "kurukin-channel-analysis-v1",
@@ -712,7 +738,7 @@ Short canonical root example (structural illustration only; the supplied JSON Sc
 
 FINAL OUTPUT REQUIREMENT:
 
-Create and attach/downloadable file: `kurukin-channel-analysis.json`
+Create and attach/downloadable file: `{expected_filename}`
 
 Do not paste the complete JSON into the conversation.
 
@@ -729,13 +755,15 @@ def channel_intelligence_update_prompt(data: dict[str, Any], prior: ChannelIntel
                                        state: dict[str, Any], delta: list[str]) -> str:
     """Contractual prompt for the existing immutable incremental-update import."""
     schema = json.dumps(CHANNEL_UPDATE_JSON_SCHEMA, ensure_ascii=False, indent=2)
+    expected_filename = channel_analysis_filename(data['channel'].username,
+                                                  research_pack_hash(data, prior.selection_mode))
     return f'''# Kurukin Structured Channel Intelligence Update v1
 
 YOUR TASK IS NOT TO WRITE A REPORT IN CHAT.
 
 YOUR TASK IS TO CREATE A FILE.
 
-Required output filename: `kurukin-channel-analysis.json`
+Required output filename: `{expected_filename}`
 
 Analyze only the new or changed videos in the attached incremental Research Pack. Reuse the supplied
 previous structured intelligence and compact known-video intelligence only as context for the refreshed
@@ -755,9 +783,13 @@ Set `base_state.analysis_id` to `{prior.id}`, `base_state.payload_sha256` to `{p
 Every evidence video ID must be in the merged corpus provided by the pack. For low-information videos use
 `analysis_status = insufficient_content`; do not fabricate conclusions. Canonical metrics belong to Kurukin.
 
+For every channel-level pattern, use `description` for WHAT the mechanism is and HOW it appears. Use
+`why_it_matters` only for its DISTINCT strategic implication. DO NOT repeat or paraphrase `description`
+inside `why_it_matters`.
+
 FINAL OUTPUT REQUIREMENT:
 
-Create and attach/downloadable file: `kurukin-channel-analysis.json`
+Create and attach/downloadable file: `{expected_filename}`
 
 If the AI environment truly cannot create a downloadable file, respond exactly:
 FILE_GENERATION_UNAVAILABLE
@@ -768,8 +800,8 @@ JSON Schema (authoritative):
 '''
 
 
-def _external_ai_handoff_page(*, channel_id: uuid.UUID, username: str, title: str, prompt: str,
-                              download_href: str, import_base: str,
+def _external_ai_handoff_page(*, channel_id: uuid.UUID, username: str, nickname: str | None,
+                              expected_filename: str, title: str, prompt: str, download_href: str, import_base: str,
                               has_current_intelligence: bool = False) -> HTMLResponse:
     """Render the explicit evidence → external AI → import handoff for new and update analyses."""
     current_status = ('''<div class="current-intelligence"><p><b>Inteligencia actual:</b> <span class="badge ok">✓ disponible</span></p>
@@ -777,7 +809,7 @@ def _external_ai_handoff_page(*, channel_id: uuid.UUID, username: str, title: st
                       if has_current_intelligence else
                       '''<p><b>Nuevo análisis:</b> <span id="new-analysis-status" class="badge warn">pendiente</span></p>''')
     storage_key = f'kurukin-research-pack-downloaded-{channel_id}'
-    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Inteligencia</a></p><h2>{_e(title)}</h2>
+    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Inteligencia</a></p>{_channel_context(username, nickname)}<h2>{_e(title)}</h2>
 <p class="muted">Completa estos tres pasos en orden. No necesitas volver atrás para importar el resultado.</p>{current_status}
 <section class="card handoff-step" aria-labelledby="step-1-title"><p class="eyebrow">Paso 1</p><h2 id="step-1-title">Preparar evidencia</h2>
 <p>Este ZIP contiene los videos, transcripciones, evidencia y contrato que la IA necesita para analizar el canal.</p>
@@ -787,12 +819,12 @@ def _external_ai_handoff_page(*, channel_id: uuid.UUID, username: str, title: st
 <p><b>Procesador recomendado:</b> Alex Hormozi — $100M</p>
 <div class="actions"><button type="button" id="open-hormozi" data-hormozi-url="{HORMOZI_GPT_URL}">Copiar instrucciones y abrir Alex Hormozi GPT</button></div>
 <p class="handoff-status" id="copy-status" aria-live="polite"></p>
-<ol><li>Adjunta el paquete de investigación descargado.</li><li>Pega las instrucciones copiadas.</li><li>Espera a que el GPT genere el archivo:<br><span class="required-filename">kurukin-channel-analysis.json</span></li><li>Descarga ese archivo.</li><li>Regresa a Kurukin.</li></ol>
+<ol><li>Adjunta el paquete de investigación descargado.</li><li>Pega las instrucciones copiadas.</li><li>La IA debe devolverte:<br><span class="required-filename">{_e(expected_filename)}</span></li><li>Descarga ese archivo.</li><li>Regresa a Kurukin.</li></ol>
 <div class="actions"><button type="button" id="copy-channel-prompt" class="secondary">Copiar instrucciones</button></div>
 <details class="card technical" id="channel-prompt-details"><summary><b>Ver instrucciones</b></summary><div class="step-body"><p class="muted">Úsalo para revisar o copiar manualmente el contrato.</p><textarea id="channel-prompt" readonly>{_e(prompt)}</textarea><div class="actions"><button type="button" id="copy-channel-prompt-manual" class="secondary">Copiar instrucciones</button></div></div></details></section>
 <section class="card handoff-step" aria-labelledby="step-3-title"><p class="eyebrow">Paso 3</p><h2 id="step-3-title">Importar resultado</h2>
-<p>Cuando ChatGPT te entregue <span class="required-filename">kurukin-channel-analysis.json</span>, súbelo aquí.</p>
-<form id="analysis-upload"><label class="dropzone">Sube <b>kurukin-channel-analysis.json</b><br><span class="button secondary">Seleccionar kurukin-channel-analysis.json</span><input id="analysis-file" type="file" accept=".json,application/json"></label></form><div id="analysis-result" aria-live="polite"></div></section>
+<p>Cuando ChatGPT te entregue <span class="required-filename">{_e(expected_filename)}</span>, súbelo aquí.</p>
+<form id="analysis-upload"><label class="dropzone">Sube <b>{_e(expected_filename)}</b><br><span class="button secondary">Seleccionar { _e(expected_filename) }</span><input id="analysis-file" type="file" accept=".json,application/json"></label></form><div id="analysis-result" aria-live="polite"></div></section>
 <script>(function(){{
 const prompt=document.getElementById('channel-prompt'),copyStatus=document.getElementById('copy-status'),newAnalysis=document.getElementById('new-analysis-status'),download=document.getElementById('download-research-pack'),downloadStatus=document.getElementById('research-pack-status'),storageKey='{storage_key}',gptUrl='{HORMOZI_GPT_URL}',input=document.getElementById('analysis-file'),base='{import_base}';
 function markDownloaded(){{try{{localStorage.setItem(storageKey,'1')}}catch(_error){{}}download.textContent='✓ Paquete de investigación descargado';downloadStatus.textContent='Paso 1 completado: paquete descargado.';if(newAnalysis)newAnalysis.textContent='listo para analizar';}}
@@ -951,7 +983,24 @@ def _proof_summary(item: dict[str, Any], records: dict[str, dict[str, Any]]) -> 
     if not evidence:
         return 'Evidencia citada en la inteligencia.'
     strongest = max((record.get('views') or 0 for record in evidence), default=0)
-    return f'{len(evidence)} video(s) con evidencia · mejor ejemplo {_format_metric(strongest, " vistas")}'
+    video_label = 'video' if len(evidence) == 1 else 'videos'
+    return f'{len(evidence)} {video_label} con evidencia · mejor ejemplo {_format_metric(strongest, " vistas")}'
+
+
+def _normalized_copy(value: Any) -> str:
+    """Compare stored copy conservatively across harmless formatting changes."""
+    if not isinstance(value, str):
+        return ''
+    value = unicodedata.normalize('NFKD', value).casefold()
+    value = ''.join(char for char in value if not unicodedata.combining(char))
+    return re.sub(r'[^\w]+', ' ', value, flags=re.UNICODE).strip()
+
+
+def _has_distinct_why(description: Any, why_it_matters: Any) -> bool:
+    """Do not render an old duplicated explanation as a second paragraph."""
+    normalized_description = _normalized_copy(description)
+    normalized_why = _normalized_copy(why_it_matters)
+    return bool(normalized_why) and normalized_why != normalized_description
 
 
 def _compact_items(items: Any, *, limit: int = 5, description: bool = False) -> str:
@@ -976,7 +1025,7 @@ def _actionable_playbook(data: dict[str, Any], analysis: ChannelIntelligenceAnal
     mechanism_html = ''.join(
         f'<article class="mechanism"><span class="mechanism-rank">{index}</span><b>{_e(item.get("name") or "Mecanismo")}</b>'
         f'<p>{_e(item.get("description") or "Mecanismo repetido respaldado por evidencia del canal.")}</p>'
-        f'<p><b>Por qué importa:</b> {_e(item.get("why_it_matters") or item.get("description") or "Conecta una tensión concreta con una razón para seguir mirando.")}</p>'
+        f'{("<p><b>Por qué importa:</b> " + _e(item.get("why_it_matters")) + "</p>") if _has_distinct_why(item.get("description"), item.get("why_it_matters")) else ""}'
         f'<p class="proof-summary">{_e(_proof_summary(item, records))}</p>{_evidence_detail(item.get("evidence", []), records)}</article>'
         for index, item in enumerate(mechanisms, 1)
     ) or '<p class="muted">Aún no hay mecanismos importados.</p>'
@@ -1397,7 +1446,7 @@ def channel_intelligence_page(channel_id: uuid.UUID, _auth: None = Depends(requi
         ChannelIntelligenceAnalysis.channel_id == channel_id
     ).order_by(ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc())))
     latest = analyses[0] if analyses else None
-    channel_header = f'''<p><a href="/admin/research">← Canales</a></p><h2>@{_e(channel.username)}</h2><p class="muted">{_e(channel.nickname)}</p>
+    channel_header = f'''<p><a href="/admin/research">← Canales</a></p>{_channel_context(channel.username, channel.nickname)}
 <section><p class="eyebrow">CANAL</p><div class="stat-grid"><div class="stat"><b>{data['total_videos']}</b>videos encontrados</div><div class="stat"><b>{data['priority_transcripts']}</b>transcripciones disponibles</div></div></section>'''
     history = ''.join(f'<li><a href="/admin/research/channels/{channel_id}/intelligence/{analysis.id}">Inteligencia importada · {_when(analysis.updated_at)}</a></li>' for analysis in analyses)
     history_section = f'<details><summary>Historial de inteligencia importada</summary><ul>{history}</ul></details>' if history else ''
@@ -1476,7 +1525,10 @@ def channel_intelligence_action(channel_id: uuid.UUID, _auth: None = Depends(req
     if state['state'] != 'SEMANTIC_DELTA':
         return channel_intelligence_prompt_page(channel_id, db=db)
     return _external_ai_handoff_page(
-        channel_id=channel_id, username=data['channel'].username, title='Actualizar inteligencia',
+        channel_id=channel_id, username=data['channel'].username, nickname=data['channel'].nickname,
+        expected_filename=channel_analysis_filename(data['channel'].username,
+                                                    research_pack_hash(data, latest.selection_mode)),
+        title='Actualizar inteligencia',
         prompt=channel_intelligence_update_prompt(data, latest, state, delta),
         download_href=f'/admin/research/channels/{channel_id}/intelligence/update.zip',
         import_base=f'/admin/research/channels/{channel_id}/intelligence/update/import',
@@ -1488,7 +1540,9 @@ def channel_intelligence_action(channel_id: uuid.UUID, _auth: None = Depends(req
 def channel_intelligence_prompt_page(channel_id: uuid.UUID, mode: str = 'all', _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     data = _channel_or_404(db, channel_id)
     return _external_ai_handoff_page(
-        channel_id=channel_id, username=data['channel'].username, title='Generar inteligencia',
+        channel_id=channel_id, username=data['channel'].username, nickname=data['channel'].nickname,
+        expected_filename=channel_analysis_filename(data['channel'].username, research_pack_hash(data, mode)),
+        title='Generar inteligencia',
         prompt=channel_intelligence_prompt(data, mode),
         download_href=f'/admin/research/channels/{channel_id}/export.zip?mode={_e(mode)}',
         import_base=f'/admin/research/channels/{channel_id}/intelligence/import',
@@ -1758,7 +1812,9 @@ def _source_pattern_html(data: dict[str, Any], analysis: ChannelIntelligenceAnal
                 if record:
                     metric = f"{record.get('views', 0):,} views · outlier {float(record.get('outlier_score') or 0):.1f}"
                     videos.append(f'<li><a href="{_e(record["url"])}" target="_blank" rel="noopener">{_e(_human_video_title(record))}</a><br><span class="muted">{_e(metric)}</span></li>')
-        cards.append(f'<div class="card"><b>{_e(name)}</b><p>{_e(item.get("description") or "")}</p><p><b>Why it worked</b><br>{_e(item.get("description") or "")}</p><ul>{"".join(videos) or "<li class=\"muted\">No video evidence.</li>"}</ul></div>')
+        why = (f'<p><b>Por qué importa</b><br>{_e(item.get("why_it_matters"))}</p>'
+               if _has_distinct_why(item.get('description'), item.get('why_it_matters')) else '')
+        cards.append(f'<div class="card"><b>{_e(name)}</b><p>{_e(item.get("description") or "")}</p>{why}<ul>{"".join(videos) or "<li class=\"muted\">No video evidence.</li>"}</ul></div>')
     return ''.join(cards) or '<p class="muted">No matching source pattern.</p>'
 
 
@@ -1806,7 +1862,8 @@ def channel_intelligence_detail(channel_id: uuid.UUID, analysis_id: uuid.UUID, _
     if analysis is None:
         raise HTTPException(404, 'Unknown Channel Intelligence analysis')
     data = _channel_or_404(db, channel_id)
-    return _layout('Channel Intelligence detail', f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Channel Intelligence</a></p><h2>Channel Intelligence</h2>{_channel_intelligence_results(data, analysis, db)}''')
+    channel = data['channel']
+    return _layout('Channel Intelligence detail', f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Inteligencia</a></p>{_channel_context(channel.username, channel.nickname)}<h2>Inteligencia del canal</h2>{_channel_intelligence_results(data, analysis, db)}''')
 
 
 PROMPT_PRESETS = {
