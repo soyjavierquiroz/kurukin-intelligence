@@ -234,6 +234,48 @@ def test_single_page_actionable_workflow_and_schema_drift(db):
     assert any("se recibió 'video_intelligence'" in error.lower() for error in errors)
 
 
+def test_external_ai_handoff_is_an_explicit_mobile_safe_three_step_flow(db):
+    channel, _videos = corpus(db)
+    page = admin.channel_intelligence_prompt_page(channel.id, db=db).body.decode()
+    hormozi_url = 'https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m'
+
+    assert 'Paso 1' in page and 'Preparar evidencia' in page
+    assert 'Paso 2' in page and 'Analizar con IA' in page
+    assert 'Paso 3' in page and 'Importar resultado' in page
+    assert 'Descargar paquete de investigación' in page
+    assert f'href="/admin/research/channels/{channel.id}/export.zip?mode=all"' in page
+    assert hormozi_url in page
+    assert 'Copiar instrucciones y abrir Alex Hormozi GPT' in page
+    assert page.index("window.open(gptUrl,'_blank','noopener')") < page.index('copyCurrentPrompt().then')
+    assert 'kurukin-channel-analysis.json' in page
+    assert 'Seleccionar kurukin-channel-analysis.json' in page
+    assert 'id="analysis-upload"' in page
+    assert page.count('>Copiar instrucciones<') >= 2
+    assert '<details class="card technical" id="channel-prompt-details">' in page
+    assert '<details class="card technical" id="channel-prompt-details" open>' not in page
+    assert 'No se pudieron copiar automáticamente. Abre “Ver instrucciones”' in page
+    assert '@media(max-width:650px)' in page and '.actions>*{width:100%;text-align:center}' in admin._layout('test', '').body.decode()
+    assert 'INTERNAL RESEARCH BACKOFFICE v1.8 · SCI v1 · STRATEGIST v1 · CREATE v1' in page
+
+
+def test_external_ai_handoff_update_keeps_current_intelligence_separate_from_new_import(db):
+    channel, videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    payload = _channel_analysis_payload(data)
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, payload, 'all', admin.canonical_json_sha256(payload), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    videos[0].caption = 'Contenido nuevo para actualizar'; db.commit()
+
+    page = admin.channel_intelligence_action(channel.id, db=db).body.decode()
+    assert 'Inteligencia actual:</b> <span class="badge ok">✓ disponible</span>' in page
+    assert 'Nuevo análisis:</b> <span id="new-analysis-status" class="badge warn">pendiente de importar</span>' in page
+    assert 'Paso 1' in page and 'Paso 2' in page and 'Paso 3' in page
+    assert f'href="/admin/research/channels/{channel.id}/intelligence/update.zip"' in page
+    assert "base='/admin/research/channels/%s/intelligence/update/import'" % channel.id in page
+    assert 'Importar inteligencia terminada' not in page
+
+
 def _content_pack(channel, evidence_id, pattern='Pain → meaning → hope'):
     return {
         'schema': 'kurukin-content-pack-v1',
@@ -313,7 +355,7 @@ def test_product_ux_v1_human_journey_and_advanced_separation(db, monkeypatch):
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'INTERNAL RESEARCH BACKOFFICE v1.7 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build 193a52f' in page
+        assert 'INTERNAL RESEARCH BACKOFFICE v1.8 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build 193a52f' in page
         assert '1&nbsp; Canal' in page and '4&nbsp; Contenido' in page
     assert 'Canales' in index and 'Siguiente paso' in index
     assert 'channel-list' in index and '<table>' not in index

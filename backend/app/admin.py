@@ -55,6 +55,7 @@ IMPORT_MAX_LINES = 10_000
 IMPORT_MAX_TRANSCRIPT_CHARS = 100_000
 TRANSCRIPT_PART_CHARS = 450_000
 PENDING_IMPORT_TTL_SECONDS = 15 * 60
+HORMOZI_GPT_URL = 'https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m'
 
 
 def _unauthorized() -> HTTPException:
@@ -115,7 +116,8 @@ def _layout(title: str, content: str, *, product_journey: bool = True) -> HTMLRe
 <title>{_e(title)} · Kurukin</title><style>
 :root{{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fa}}
 body{{margin:0}}main{{max-width:1000px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:16px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}h3{{margin:18px 0 8px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:12px;padding:18px;margin:14px 0}}.hero{{border-color:#b8d0f3}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY,.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;display:inline-block;min-height:44px;box-sizing:border-box}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:10px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:160px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}.step{{padding:0;overflow:hidden}}.step>summary{{cursor:pointer;list-style:none;padding:17px;font-size:1.05rem;min-height:24px}}.step>summary::-webkit-details-marker{{display:none}}.step-body{{padding:0 17px 17px}}.dropzone{{display:block;border:2px dashed #8ba3bd;border-radius:9px;padding:28px 16px;text-align:center;background:#f8fafc;cursor:pointer}}.dropzone input{{display:none}}.error-box{{background:#fee2e2;color:#7f1d1d;padding:12px;border-radius:7px}}.video-card{{border-left:4px solid #1659b7}}.channel-list{{display:grid;gap:10px}}.channel-list .card{{margin:0}}.journey{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px}}.journey span{{padding:6px 10px;background:#e7edf3;border-radius:999px;font-size:.84rem;font-weight:600}}.eyebrow{{color:#526174;font-weight:700;font-size:.78rem;letter-spacing:.06em}}.insight-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}.insight-grid .card{{margin:0}}.technical{{font-size:.9rem}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}header .muted{{display:block;margin-top:6px}}.actions{{display:grid}}.actions>*{{width:100%;text-align:center}}.journey{{display:grid;grid-template-columns:1fr 1fr;gap:6px}}.journey span{{text-align:center}}.stat-grid,.insight-grid{{grid-template-columns:1fr}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.7 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
+.handoff-step{{border-left:4px solid #1659b7}}.handoff-step h2{{margin-top:4px}}.handoff-status{{min-height:1.4em}}.required-filename{{display:inline-block;background:#eff6ff;border:1px solid #b8d0f3;border-radius:6px;padding:4px 7px;font-size:1em;font-weight:700;overflow-wrap:anywhere}}.current-intelligence{{display:grid;gap:6px}}@media(max-width:650px){{.handoff-step{{padding:16px}}.dropzone{{padding:24px 12px}}}}
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.8 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -722,6 +724,88 @@ JSON Schema (authoritative):
 '''
 
 
+def channel_intelligence_update_prompt(data: dict[str, Any], prior: ChannelIntelligenceAnalysis,
+                                       state: dict[str, Any], delta: list[str]) -> str:
+    """Contractual prompt for the existing immutable incremental-update import."""
+    schema = json.dumps(CHANNEL_UPDATE_JSON_SCHEMA, ensure_ascii=False, indent=2)
+    return f'''# Kurukin Structured Channel Intelligence Update v1
+
+YOUR TASK IS NOT TO WRITE A REPORT IN CHAT.
+
+YOUR TASK IS TO CREATE A FILE.
+
+Required output filename: `kurukin-channel-analysis.json`
+
+Analyze only the new or changed videos in the attached incremental Research Pack. Reuse the supplied
+previous structured intelligence and compact known-video intelligence only as context for the refreshed
+channel synthesis. Do not invent evidence, transcripts, metrics, or video IDs.
+
+The file must be valid JSON matching EXACTLY the JSON Schema below. Do NOT write Markdown and do NOT
+paste the complete JSON as the normal chat response. Set `schema` to `{CHANNEL_UPDATE_SCHEMA_VERSION}` and
+`prompt_version` to `{CHANNEL_UPDATE_PROMPT_VERSION}`. Set `processor` to the processor used.
+
+Set `base_state.analysis_id` to `{prior.id}`, `base_state.payload_sha256` to `{prior.payload_sha256}`, and
+`base_state.semantic_corpus_hash` to `{prior.semantic_corpus_hash}`. Set
+`target_state.semantic_corpus_hash` to `{state['semantic_corpus_hash']}`.
+
+`upsert_videos` MUST contain exactly these {len(delta)} new or changed video IDs, once each:
+{json.dumps(delta, ensure_ascii=False)}
+
+Every evidence video ID must be in the merged corpus provided by the pack. For low-information videos use
+`analysis_status = insufficient_content`; do not fabricate conclusions. Canonical metrics belong to Kurukin.
+
+FINAL OUTPUT REQUIREMENT:
+
+Create and attach/downloadable file: `kurukin-channel-analysis.json`
+
+If the AI environment truly cannot create a downloadable file, respond exactly:
+FILE_GENERATION_UNAVAILABLE
+
+JSON Schema (authoritative):
+
+{schema}
+'''
+
+
+def _external_ai_handoff_page(*, channel_id: uuid.UUID, username: str, title: str, prompt: str,
+                              download_href: str, import_base: str,
+                              has_current_intelligence: bool = False) -> HTMLResponse:
+    """Render the explicit evidence → external AI → import handoff for new and update analyses."""
+    current_status = ('''<div class="current-intelligence"><p><b>Inteligencia actual:</b> <span class="badge ok">✓ disponible</span></p>
+<p><b>Nuevo análisis:</b> <span id="new-analysis-status" class="badge warn">pendiente de importar</span></p></div>'''
+                      if has_current_intelligence else
+                      '''<p><b>Nuevo análisis:</b> <span id="new-analysis-status" class="badge warn">pendiente</span></p>''')
+    storage_key = f'kurukin-research-pack-downloaded-{channel_id}'
+    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Inteligencia</a></p><h2>{_e(title)}</h2>
+<p class="muted">Completa estos tres pasos en orden. No necesitas volver atrás para importar el resultado.</p>{current_status}
+<section class="card handoff-step" aria-labelledby="step-1-title"><p class="eyebrow">Paso 1</p><h2 id="step-1-title">Preparar evidencia</h2>
+<p>Este ZIP contiene los videos, transcripciones, evidencia y contrato que la IA necesita para analizar el canal.</p>
+<div class="actions"><a class="button" id="download-research-pack" href="{_e(download_href)}">Descargar paquete de investigación</a></div>
+<p class="muted handoff-status" id="research-pack-status" aria-live="polite"></p></section>
+<section class="card handoff-step" aria-labelledby="step-2-title"><p class="eyebrow">Paso 2</p><h2 id="step-2-title">Analizar con IA</h2>
+<p><b>Procesador recomendado:</b> Alex Hormozi — $100M</p>
+<div class="actions"><button type="button" id="open-hormozi" data-hormozi-url="{HORMOZI_GPT_URL}">Copiar instrucciones y abrir Alex Hormozi GPT</button></div>
+<p class="handoff-status" id="copy-status" aria-live="polite"></p>
+<ol><li>Adjunta el paquete de investigación descargado.</li><li>Pega las instrucciones copiadas.</li><li>Espera a que el GPT genere el archivo:<br><span class="required-filename">kurukin-channel-analysis.json</span></li><li>Descarga ese archivo.</li><li>Regresa a Kurukin.</li></ol>
+<div class="actions"><button type="button" id="copy-channel-prompt" class="secondary">Copiar instrucciones</button></div>
+<details class="card technical" id="channel-prompt-details"><summary><b>Ver instrucciones</b></summary><div class="step-body"><p class="muted">Úsalo para revisar o copiar manualmente el contrato.</p><textarea id="channel-prompt" readonly>{_e(prompt)}</textarea><div class="actions"><button type="button" id="copy-channel-prompt-manual" class="secondary">Copiar instrucciones</button></div></div></details></section>
+<section class="card handoff-step" aria-labelledby="step-3-title"><p class="eyebrow">Paso 3</p><h2 id="step-3-title">Importar resultado</h2>
+<p>Cuando ChatGPT te entregue <span class="required-filename">kurukin-channel-analysis.json</span>, súbelo aquí.</p>
+<form id="analysis-upload"><label class="dropzone">Sube <b>kurukin-channel-analysis.json</b><br><span class="button secondary">Seleccionar kurukin-channel-analysis.json</span><input id="analysis-file" type="file" accept=".json,application/json"></label></form><div id="analysis-result" aria-live="polite"></div></section>
+<script>(function(){{
+const prompt=document.getElementById('channel-prompt'),copyStatus=document.getElementById('copy-status'),newAnalysis=document.getElementById('new-analysis-status'),download=document.getElementById('download-research-pack'),downloadStatus=document.getElementById('research-pack-status'),storageKey='{storage_key}',gptUrl='{HORMOZI_GPT_URL}',input=document.getElementById('analysis-file'),base='{import_base}';
+function markDownloaded(){{try{{localStorage.setItem(storageKey,'1')}}catch(_error){{}}download.textContent='✓ Paquete de investigación descargado';downloadStatus.textContent='Paso 1 completado: paquete descargado.';if(newAnalysis)newAnalysis.textContent='listo para analizar';}}
+try{{if(localStorage.getItem(storageKey)==='1')markDownloaded()}}catch(_error){{}}
+download.addEventListener('click',markDownloaded);
+async function copyCurrentPrompt(){{try{{if(!navigator.clipboard||!navigator.clipboard.writeText)throw new Error('Clipboard unavailable');await navigator.clipboard.writeText(prompt.value);return true;}}catch(_error){{return false;}}}}
+async function manualCopy(){{const copied=await copyCurrentPrompt();copyStatus.textContent=copied?'Instrucciones copiadas.':'No se pudieron copiar automáticamente. Abre “Ver instrucciones” y copia el texto manualmente.';}}
+document.getElementById('copy-channel-prompt').addEventListener('click',manualCopy);document.getElementById('copy-channel-prompt-manual').addEventListener('click',manualCopy);
+document.getElementById('open-hormozi').addEventListener('click',()=>{{window.open(gptUrl,'_blank','noopener');copyCurrentPrompt().then(copied=>{{copyStatus.textContent=copied?'Instrucciones copiadas. Alex Hormozi GPT se abrió en una nueva pestaña.':'Alex Hormozi GPT se abrió en una nueva pestaña, pero no se pudieron copiar las instrucciones. Abre “Ver instrucciones” y cópialas manualmente.';if(newAnalysis)newAnalysis.textContent='en progreso en ChatGPT';}});}});
+input.addEventListener('change',async()=>{{if(!input.files[0])return;if(newAnalysis)newAnalysis.textContent='listo para importar';const body=new FormData();body.append('file',input.files[0]);const r=await fetch(base+'/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('analysis-result');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+((x.errors||['No se pudo validar el archivo.']).map(v=>'<li>'+v+'</li>').join(''))+'</ul></div>';return}}box.innerHTML='<div class="card"><h3>Listo para confirmar</h3><button id="confirm-analysis">Confirmar inteligencia</button></div>';document.getElementById('confirm-analysis').addEventListener('click',async()=>{{const confirm=new FormData();confirm.append('token',x.token);const done=await fetch(base+'/confirm',{{method:'POST',body:confirm}});if((await done.json()).ok)location.href='/admin/research/channels/{channel_id}/intelligence';}});}});
+}})();</script>'''
+    return _layout(title, content)
+
+
 def dry_run_channel_intelligence_import(db: Session, channel_id: uuid.UUID, raw: bytes) -> tuple[dict[str, Any] | None, list[str], str | None, str | None]:
     """Parse and validate an import without writing any intelligence records."""
     if len(raw) > CHANNEL_INTELLIGENCE_IMPORT_MAX_BYTES:
@@ -1039,16 +1123,24 @@ def channel_intelligence_action(channel_id: uuid.UUID, _auth: None = Depends(req
     state, _records, delta = _knowledge_state(db, data, latest)
     if state['state'] != 'SEMANTIC_DELTA':
         return channel_intelligence_prompt_page(channel_id, db=db)
-    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← @{_e(data['channel'].username)}</a></p><h2>Actualizar inteligencia</h2><div class="card hero"><p>Hay contenido nuevo por analizar. La última inteligencia sigue visible mientras completas la actualización.</p><p class="muted">Se actualizarán {len(delta)} video(s) con el flujo incremental existente.</p><div class="actions"><a class="button" href="/admin/research/channels/{channel_id}/intelligence/update.zip">Preparar actualización</a></div></div><details class="card technical"><summary><b>Opciones avanzadas de actualización</b></summary><div class="step-body"><p>Descarga el paquete incremental, procesa el archivo con el contrato de actualización y súbelo aquí.</p><form id="update-upload"><label class="dropzone">Sube <b>kurukin-channel-update.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="update-file" type="file" accept=".json,application/json"></label></form><div id="update-result" aria-live="polite"></div></div></details><script>(function(){{const input=document.getElementById('update-file'),base='/admin/research/channels/{channel_id}/intelligence/update/import';input.addEventListener('change',async()=>{{if(!input.files[0])return;const body=new FormData();body.append('file',input.files[0]);const r=await fetch(base+'/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('update-result');if(!x.ok){{box.textContent=(x.errors||['No se pudo validar la actualización.']).join(' ');return}}box.innerHTML='<button id="confirm-update">Confirmar actualización</button>';document.getElementById('confirm-update').onclick=async()=>{{const confirm=new FormData();confirm.append('token',x.token);const done=await fetch(base+'/confirm',{{method:'POST',body:confirm}});if((await done.json()).ok)location.href='/admin/research/channels/{channel_id}/intelligence'}}}})}})();</script>'''
-    return _layout('Actualizar inteligencia', content)
+    return _external_ai_handoff_page(
+        channel_id=channel_id, username=data['channel'].username, title='Actualizar inteligencia',
+        prompt=channel_intelligence_update_prompt(data, latest, state, delta),
+        download_href=f'/admin/research/channels/{channel_id}/intelligence/update.zip',
+        import_base=f'/admin/research/channels/{channel_id}/intelligence/update/import',
+        has_current_intelligence=True,
+    )
 
 
 @router.get('/research/channels/{channel_id}/intelligence/prompt', response_class=HTMLResponse)
 def channel_intelligence_prompt_page(channel_id: uuid.UUID, mode: str = 'all', _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     data = _channel_or_404(db, channel_id)
-    prompt = channel_intelligence_prompt(data, mode)
-    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Inteligencia</a></p><h2>Generar inteligencia</h2><p class="muted">Prepara el paquete de evidencia y el contrato existente para incorporar la inteligencia del canal.</p><textarea id="channel-prompt" readonly>{_e(prompt)}</textarea><div class="actions"><button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('channel-prompt').value)">Copiar instrucciones</button><a class="button" href="/admin/research/channels/{channel_id}/export.zip?mode={_e(mode)}">Descargar paquete de investigación</a></div><details class="card"><summary><b>Importar inteligencia terminada</b></summary><div class="step-body"><form id="analysis-upload"><label class="dropzone">Sube <b>kurukin-channel-analysis.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="analysis-file" type="file" accept=".json,application/json"></label></form><div id="analysis-result" aria-live="polite"></div></div></details><script>(function(){{const input=document.getElementById('analysis-file'),base='/admin/research/channels/{channel_id}/intelligence/import';input.addEventListener('change',async()=>{{if(!input.files[0])return;const body=new FormData();body.append('file',input.files[0]);const r=await fetch(base+'/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('analysis-result');if(!x.ok){{box.textContent=(x.errors||['No se pudo validar la inteligencia.']).join(' ');return}}box.innerHTML='<p>Lista para confirmar.</p><button id="confirm-analysis">Confirmar inteligencia</button>';document.getElementById('confirm-analysis').onclick=async()=>{{const confirm=new FormData();confirm.append('token',x.token);const done=await fetch(base+'/confirm',{{method:'POST',body:confirm}});if((await done.json()).ok)location.href='/admin/research/channels/{channel_id}/intelligence'}}}})}})();</script>'''
-    return _layout('Generar inteligencia', content)
+    return _external_ai_handoff_page(
+        channel_id=channel_id, username=data['channel'].username, title='Generar inteligencia',
+        prompt=channel_intelligence_prompt(data, mode),
+        download_href=f'/admin/research/channels/{channel_id}/export.zip?mode={_e(mode)}',
+        import_base=f'/admin/research/channels/{channel_id}/intelligence/import',
+    )
 
 
 @router.get('/research/channels/{channel_id}/intelligence/prompt.txt', response_class=PlainTextResponse)
