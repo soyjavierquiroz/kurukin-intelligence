@@ -111,14 +111,14 @@ def _build_marker() -> str:
 
 
 def _layout(title: str, content: str, *, product_journey: bool = True) -> HTMLResponse:
-    journey = '''<nav class="journey" aria-label="Recorrido del producto"><span>1&nbsp; Canal</span><span>2&nbsp; Inteligencia</span><span>3&nbsp; Estrategia</span><span>4&nbsp; Contenido</span></nav>''' if product_journey else ''
+    journey = '''<nav class="journey" aria-label="Recorrido del producto"><span>1&nbsp; CANAL</span><span>2&nbsp; INTELIGENCIA</span><span>3&nbsp; USAR INTELIGENCIA</span></nav>''' if product_journey else ''
     return HTMLResponse(f'''<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_e(title)} · Kurukin</title><style>
 :root{{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fa}}
 body{{margin:0}}main{{max-width:1000px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:16px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}h3{{margin:18px 0 8px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:12px;padding:18px;margin:14px 0}}.hero{{border-color:#b8d0f3}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY,.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;display:inline-block;min-height:44px;box-sizing:border-box}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:10px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:160px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}.step{{padding:0;overflow:hidden}}.step>summary{{cursor:pointer;list-style:none;padding:17px;font-size:1.05rem;min-height:24px}}.step>summary::-webkit-details-marker{{display:none}}.step-body{{padding:0 17px 17px}}.dropzone{{display:block;border:2px dashed #8ba3bd;border-radius:9px;padding:28px 16px;text-align:center;background:#f8fafc;cursor:pointer}}.dropzone input{{display:none}}.error-box{{background:#fee2e2;color:#7f1d1d;padding:12px;border-radius:7px}}.video-card{{border-left:4px solid #1659b7}}.channel-list{{display:grid;gap:10px}}.channel-list .card{{margin:0}}.journey{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px}}.journey span{{padding:6px 10px;background:#e7edf3;border-radius:999px;font-size:.84rem;font-weight:600}}.eyebrow{{color:#526174;font-weight:700;font-size:.78rem;letter-spacing:.06em}}.insight-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}.insight-grid .card{{margin:0}}.technical{{font-size:.9rem}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}header .muted{{display:block;margin-top:6px}}.actions{{display:grid}}.actions>*{{width:100%;text-align:center}}.journey{{display:grid;grid-template-columns:1fr 1fr;gap:6px}}.journey span{{text-align:center}}.stat-grid,.insight-grid{{grid-template-columns:1fr}}}}
 .handoff-step{{border-left:4px solid #1659b7}}.handoff-step h2{{margin-top:4px}}.handoff-status{{min-height:1.4em}}.required-filename{{display:inline-block;background:#eff6ff;border:1px solid #b8d0f3;border-radius:6px;padding:4px 7px;font-size:1em;font-weight:700;overflow-wrap:anywhere}}.current-intelligence{{display:grid;gap:6px}}.executive-thesis{{padding:28px;border:0;border-radius:14px;background:linear-gradient(135deg,#eaf3ff,#fff)}}.formula{{font-size:1.15rem;line-height:1.7}}.decision-cta{{padding:22px;border:1px solid #b8d0f3;border-radius:12px;margin:20px 0 28px}}.mechanism-list{{display:grid;gap:0;border-top:1px solid #dce3eb}}.mechanism{{padding:20px 0;border-bottom:1px solid #dce3eb}}.mechanism-rank{{font-size:1.5rem;font-weight:800;color:#1659b7;margin-right:10px}}.proof-summary{{color:#526174;font-size:.9rem}}.evidence-detail{{margin-top:12px;background:#f8fafc;border-radius:8px;padding:10px}}.evidence-detail summary{{cursor:pointer;font-weight:700}}.compact-columns{{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin:20px 0}}.compact-list{{margin:8px 0;padding-left:20px}}.compact-list li{{margin:5px 0}}.secondary-intelligence{{margin:10px 0;border:1px solid #e7edf3;border-radius:8px;padding:12px}}.strategy-result{{margin:26px 0;padding:24px;border:1px solid #b8d0f3;border-radius:14px}}.strategy-recommendation{{padding:16px 0;border-bottom:1px solid #e7edf3}}.strategy-recommendation:last-child{{border-bottom:0}}@media(max-width:650px){{.handoff-step{{padding:16px}}.dropzone{{padding:24px 12px}}.compact-columns{{grid-template-columns:1fr;gap:12px}}.executive-thesis{{padding:20px}}.decision-cta{{padding:18px}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.9 · SCI v1 · STRATEGIST v2 · CREATE v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">KURUKIN PRODUCT LITE v1 · SCI v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -986,7 +986,7 @@ def _actionable_playbook(data: dict[str, Any], analysis: ChannelIntelligenceAnal
                            ('repetition_clusters', 'Estrategia de repetición'), ('topics', 'Temas y persuasión'))
     )
     return f'''<section id="what-works"><h2>¿POR QUÉ FUNCIONA ESTE CANAL?</h2><div class="executive-thesis"><p>{_e(value.get('summary') or 'La inteligencia disponible identifica mecanismos repetidos con evidencia.')}</p><p class="eyebrow">FÓRMULA DOMINANTE</p><p class="formula"><b>{_e(formula)}</b></p></div></section>
-<section id="what-next" class="decision-cta"><h2>¿QUÉ QUIERES HACER CON ESTO?</h2><p>Kurukin usará los mecanismos que funcionan en este canal y evaluará cuáles tienen sentido para tu mercado, oferta y audiencia, sin copiar la identidad ni las afirmaciones del creador.</p><div class="actions"><button type="button" id="adapt-business">Adaptar esto a mi negocio</button></div></section>
+<section id="what-next" class="decision-cta"><h2>USAR ESTA INTELIGENCIA</h2><p>Usa estos mecanismos en tu contexto, sin copiar la identidad, las afirmaciones ni las expresiones del creador.</p><div class="actions"><a class="button" href="#usar-inteligencia">Preparar contexto creativo</a></div></section>
 <section id="top-mechanisms"><h2>MECANISMOS PRINCIPALES</h2><p class="muted">Los 3–5 mecanismos más importantes. Las métricas están dentro de la evidencia.</p><div class="mechanism-list">{mechanism_html}</div></section>
 <section class="compact-columns"><div><h2>DOLORES QUE ACTIVAN</h2>{_compact_items(value.get('pains'))}</div><div><h2>DESEOS QUE ACTIVAN</h2>{_compact_items(value.get('desires'))}</div></section>
 <section><h2>HOOKS QUE FUNCIONAN</h2>{_compact_items(value.get('hooks'), limit=3, description=True)}</section>
@@ -1202,8 +1202,226 @@ Required root shape (no extra root fields):
 Return only the downloadable `kurukin-content-pack.json` file. Do not return a Markdown report.'''
 
 
+def _creative_context_from_form(business: str = '', offer: str = '', audience: str = '', objective: str = '',
+                                market: str = '', tone: str = '', cta_preference: str = '',
+                                restrictions: str = '', additional_context: str = '') -> dict[str, str]:
+    """Validate a lightweight, ephemeral handoff profile; it is never persisted."""
+    values = {
+        'business': business, 'offer': offer, 'audience': audience, 'objective': objective,
+        'market': market, 'tone': tone, 'cta_preference': cta_preference,
+        'restrictions': restrictions, 'additional_context': additional_context,
+    }
+    errors = [f'{field} is too long' for field, value in values.items() if len(value) > 4000]
+    if errors:
+        raise HTTPException(422, {'errors': errors})
+    return {field: value.strip() for field, value in values.items()}
+
+
+def _context_item_lines(value: dict[str, Any], key: str, *, limit: int = 8) -> list[str]:
+    rows = value.get(key, [])
+    if not isinstance(rows, list):
+        return []
+    result = []
+    for item in rows[:limit]:
+        if isinstance(item, str) and item.strip():
+            result.append(item.strip())
+        elif isinstance(item, dict):
+            name = str(item.get('name') or item.get('title') or '').strip()
+            description = str(item.get('description') or item.get('why_it_matters') or '').strip()
+            if name:
+                result.append(f'{name} — {description}' if description else name)
+    return result
+
+
+def _representative_evidence(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis,
+                             db: Session, *, limit: int = 15) -> list[dict[str, Any]]:
+    """Resolve compact public evidence from SCI claims, then fill from its analyzed corpus."""
+    records = {record['video_id']: record for record in _selection(data, analysis.selection_mode)}
+    children = {video.tiktok_id: child.intelligence for child, video in _analysis_video_rows(db, analysis)}
+    reasons: dict[str, list[str]] = {}
+    for _section, item in _channel_analysis_items(analysis.channel_intelligence):
+        label = str(item.get('name') or item.get('description') or 'Mecanismo observado').strip()
+        for evidence in item.get('evidence', []) if isinstance(item.get('evidence'), list) else []:
+            if not isinstance(evidence, dict):
+                continue
+            mechanism = str(evidence.get('claim') or label).strip()
+            for video_id in evidence.get('video_ids', []) if isinstance(evidence.get('video_ids'), list) else []:
+                if isinstance(video_id, str) and video_id in records:
+                    reasons.setdefault(video_id, []).append(mechanism)
+    ordered_ids = list(reasons)
+    fallback = sorted(records.items(), key=lambda item: (
+        -(item[1].get('outlier_score') or -1), -(item[1].get('views') or -1), item[0],
+    ))
+    ordered_ids.extend(video_id for video_id, _record in fallback if video_id not in reasons)
+    output = []
+    for video_id in ordered_ids[:limit]:
+        record = records[video_id]
+        intelligence = children.get(video_id, {})
+        hooks = intelligence.get('hooks', []) if isinstance(intelligence, dict) else []
+        opening = next((str(item).strip() for item in hooks if isinstance(item, str) and item.strip()), '')
+        if not opening:
+            opening = (record.get('transcript') or record.get('caption') or '').strip()[:280]
+        output.append({
+            'title': _human_video_title(record), 'url': record.get('url') or '',
+            'views': record.get('views'), 'likes': record.get('likes'), 'comments': record.get('comments'),
+            'shares': record.get('shares'), 'engagement_rate': record.get('engagement_rate'),
+            'outlier_score': record.get('outlier_score'), 'hook': opening,
+            'transcript_excerpt': (record.get('transcript') or '').strip()[:1200],
+            'mechanism': '; '.join(dict.fromkeys(reasons.get(video_id, []))) or 'Video representativo del corpus analizado.',
+            'why_it_matters': 'Aporta evidencia pública para los patrones y mecanismos descritos arriba.',
+        })
+    return output
+
+
+def creative_context_markdown(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis,
+                              context: dict[str, str], db: Session) -> str:
+    """Create a local Markdown attachment solely from current SCI, corpus, and form inputs."""
+    value = analysis.channel_intelligence
+    mechanisms = _context_item_lines(value, 'winning_patterns', limit=6) or _context_item_lines(value, 'hooks', limit=6)
+    formula = ' → '.join(item.split(' — ', 1)[0] for item in mechanisms[:4]) or 'No se importó una fórmula dominante explícita.'
+    sections = [
+        ('FÓRMULA DOMINANTE', [formula]), ('PATRONES MÁS FUERTES', mechanisms),
+        ('HOOKS', _context_item_lines(value, 'hooks')), ('DOLORES', _context_item_lines(value, 'pains')),
+        ('DESEOS', _context_item_lines(value, 'desires')), ('NARRATIVAS', _context_item_lines(value, 'narratives')),
+        ('CTAS Y OFERTAS', _context_item_lines(value, 'ctas') + _context_item_lines(value, 'offers')),
+        ('MECANISMOS DE REPETICIÓN', _context_item_lines(value, 'repetition_clusters')),
+    ]
+    intelligence = '\n\n'.join(
+        f'## {title}\n\n' + ('\n'.join(f'- {item}' for item in rows) if rows else '- Sin información explícita importada.')
+        for title, rows in sections
+    )
+    evidence_blocks = []
+    for index, item in enumerate(_representative_evidence(data, analysis, db), 1):
+        metrics = ' · '.join(f'{label}: {value}' for label, value in (
+            ('Views', item['views']), ('Likes', item['likes']), ('Comments', item['comments']),
+            ('Shares', item['shares']), ('Engagement', item['engagement_rate']), ('Outlier', item['outlier_score']),
+        ) if value is not None) or 'Métricas no disponibles.'
+        excerpt = item['transcript_excerpt'] or 'No hay extracto de transcripción disponible.'
+        evidence_blocks.append(
+            f"## {index}. {item['title']}\n\nTikTok: {item['url']}\n\nMétricas: {metrics}\n\n"
+            f"Hook / apertura: {item['hook'] or 'No disponible.'}\n\nExtracto de transcripción:\n\n> {excerpt}\n\n"
+            f"Mecanismo observado: {item['mechanism']}\n\nPor qué importa: {item['why_it_matters']}"
+        )
+    profile = '\n'.join(f'- {label}: {context[key] or "No especificado"}' for key, label in (
+        ('business', 'Negocio / producto'), ('offer', 'Oferta'), ('audience', 'Audiencia'),
+        ('objective', 'Objetivo'), ('market', 'Mercado'), ('tone', 'Tono'),
+        ('cta_preference', 'Preferencia de CTA'), ('restrictions', 'Restricciones'),
+        ('additional_context', 'Contexto adicional'),
+    ))
+    return f'''# Kurukin Creative Context
+
+Canal de referencia: @{data['channel'].username}
+
+Este documento contiene inteligencia y evidencia observada. Transfiere mecanismos, no expresiones, identidad ni afirmaciones del creador.
+
+# CHANNEL INTELLIGENCE
+
+{intelligence}
+
+# REPRESENTATIVE EVIDENCE
+
+{chr(10).join(evidence_blocks) or 'No hay videos representativos disponibles.'}
+
+# USER CONTEXT
+
+{profile}
+'''
+
+
+def creative_super_prompt(context: dict[str, str]) -> str:
+    return f'''Study the attached Kurukin Creative Context before proposing creative work. Understand the channel intelligence, its evidence, and the user's business context.
+
+Do not copy competitor wording, identity, claims, examples, or creative expression. Transfer mechanisms, not expressions. Treat representative successful scripts as modeling evidence, not templates to reproduce. Work interactively with the user and respect the stated restrictions.
+
+Your first response must propose the 5 strongest campaigns. For each campaign include:
+- Concept
+- Audience pain or desire
+- Mechanism
+- 3 hook options
+- Objective
+- CTA direction
+- Evidence rationale grounded in the attached Kurukin context
+
+Then ask which campaign the user wants to develop. After that, continue freely: the user may ask for a script, a shorter or more provocative version, more hooks, a CTA change, a Reels adaptation, or another variation. Do not require JSON and do not ask the user to return or import anything into Kurukin.
+
+User context summary:
+- Business/product: {context['business'] or 'Not specified'}
+- Offer: {context['offer'] or 'Not specified'}
+- Audience: {context['audience'] or 'Not specified'}
+- Objective: {context['objective'] or 'Not specified'}
+- Market: {context['market'] or 'Not specified'}
+- Tone: {context['tone'] or 'Not specified'}
+- CTA preference: {context['cta_preference'] or 'Not specified'}
+- Restrictions: {context['restrictions'] or 'None specified'}
+- Additional context: {context['additional_context'] or 'None specified'}'''
+
+
+@router.post('/research/channels/{channel_id}/intelligence/creative-context.md')
+def download_creative_context(channel_id: uuid.UUID, business: str = Form(''), offer: str = Form(''),
+                              audience: str = Form(''), objective: str = Form(''), market: str = Form(''),
+                              tone: str = Form(''), cta_preference: str = Form(''), restrictions: str = Form(''),
+                              additional_context: str = Form(''), _auth: None = Depends(require_admin),
+                              db: Session = Depends(get_db)):
+    data = _channel_or_404(db, channel_id)
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis).where(ChannelIntelligenceAnalysis.channel_id == channel_id).order_by(
+        ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc()))
+    if analysis is None:
+        raise HTTPException(409, 'Import Channel Intelligence before preparing creative context')
+    context = _creative_context_from_form(business, offer, audience, objective, market, tone, cta_preference,
+                                          restrictions, additional_context)
+    return Response(creative_context_markdown(data, analysis, context, db), media_type='text/markdown; charset=utf-8',
+                    headers={'Content-Disposition': 'attachment; filename="kurukin-creative-context.md"'})
+
+
+@router.post('/research/channels/{channel_id}/intelligence/creative-super-prompt', response_class=PlainTextResponse)
+def creative_super_prompt_text(channel_id: uuid.UUID, business: str = Form(''), offer: str = Form(''),
+                               audience: str = Form(''), objective: str = Form(''), market: str = Form(''),
+                               tone: str = Form(''), cta_preference: str = Form(''), restrictions: str = Form(''),
+                               additional_context: str = Form(''), _auth: None = Depends(require_admin),
+                               db: Session = Depends(get_db)):
+    _channel_or_404(db, channel_id)
+    if db.scalar(select(ChannelIntelligenceAnalysis.id).where(
+        ChannelIntelligenceAnalysis.channel_id == channel_id
+    )) is None:
+        raise HTTPException(409, 'Import Channel Intelligence before preparing the Super Prompt')
+    return PlainTextResponse(creative_super_prompt(_creative_context_from_form(
+        business, offer, audience, objective, market, tone, cta_preference, restrictions, additional_context)))
+
+
 @router.get('/research/channels/{channel_id}/intelligence', response_class=HTMLResponse)
 def channel_intelligence_page(channel_id: uuid.UUID, _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+    """Product Lite's complete public journey; legacy creation systems remain on unlinked routes."""
+    data = _channel_or_404(db, channel_id)
+    channel = data['channel']
+    analyses = list(db.scalars(select(ChannelIntelligenceAnalysis).where(
+        ChannelIntelligenceAnalysis.channel_id == channel_id
+    ).order_by(ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc())))
+    latest = analyses[0] if analyses else None
+    channel_header = f'''<p><a href="/admin/research">← Canales</a></p><h2>@{_e(channel.username)}</h2><p class="muted">{_e(channel.nickname)}</p>
+<section><p class="eyebrow">CANAL</p><div class="stat-grid"><div class="stat"><b>{data['total_videos']}</b>videos encontrados</div><div class="stat"><b>{data['priority_transcripts']}</b>transcripciones disponibles</div></div></section>'''
+    history = ''.join(f'<li><a href="/admin/research/channels/{channel_id}/intelligence/{analysis.id}">Inteligencia importada · {_when(analysis.updated_at)}</a></li>' for analysis in analyses)
+    history_section = f'<details><summary>Historial de inteligencia importada</summary><ul>{history}</ul></details>' if history else ''
+    advanced = f'''<details class="card technical"><summary><b>Advanced / Legacy</b></summary><div class="step-body"><p>Herramientas técnicas y flujos preservados, fuera del recorrido normal.</p>{history_section}<div class="actions"><a class="button secondary" href="/admin/research/channels/{channel_id}/import">Importar transcripciones históricas</a><a class="button secondary" href="/admin/research/channels/{channel_id}/export">Exportar Research Pack</a><a class="button secondary" href="/admin/research/channels/{channel_id}/prompt">Generador legacy</a><a class="button secondary" href="/admin/system">Admin / Debug</a></div></div></details>'''
+    if latest is None:
+        content = f'''{channel_header}<section><h2>INTELIGENCIA</h2><div class="card hero"><p>Cuando el corpus esté listo, analiza el canal para descubrir qué funciona.</p><div class="actions"><a class="button" href="/admin/research/channels/{channel_id}/intelligence/action">Preparar Structured Channel Intelligence</a></div></div></section>{advanced}'''
+        return _layout(f'@{channel.username}', content)
+    state, records, _delta = _knowledge_state(db, data, latest)
+    update_notice = '' if state['state'] == 'FRESH' else f'''<div class="card warn"><p>Hay evidencia nueva disponible. La última inteligencia sigue disponible.</p><div class="actions"><a class="button secondary" href="/admin/research/channels/{channel_id}/intelligence/action">Actualizar inteligencia</a></div></div>'''
+    evidence = _representative_evidence(data, latest, db)
+    evidence_html = ''.join(
+        f'''<article class="card video-card"><h3>{_e(item['title'])}</h3><p><a href="{_e(item['url'])}" target="_blank" rel="noopener">Abrir en TikTok</a></p><p class="muted">Views: {_e(item['views'] if item['views'] is not None else '—')} · Engagement: {_e(item['engagement_rate'] if item['engagement_rate'] is not None else '—')} · Outlier: {_e(item['outlier_score'] if item['outlier_score'] is not None else '—')}</p><p><b>Hook / apertura</b><br>{_e(item['hook'] or 'No disponible.')}</p><p><b>Mecanismo observado</b><br>{_e(item['mechanism'])}</p><p><b>Por qué importa</b><br>{_e(item['why_it_matters'])}</p><details><summary>Ver extracto de transcripción</summary><p>{_e(item['transcript_excerpt'] or 'No disponible.')}</p></details></article>'''
+        for item in evidence
+    ) or '<p class="muted">No hay evidencia representativa disponible.</p>'
+    content = f'''{channel_header}{update_notice}
+<section id="inteligencia"><p class="eyebrow">1. ¿QUÉ FUNCIONA?</p>{_actionable_playbook(data, latest)}</section>
+<section id="evidencia"><p class="eyebrow">2. EVIDENCIA</p><h2>Videos representativos</h2><p class="muted">Una selección compacta de evidencia pública y transcripciones ya importadas.</p><details class="card"><summary><b>Ver evidencia representativa ({len(evidence)} videos)</b></summary><div class="step-body">{evidence_html}</div></details></section>
+<section id="usar-inteligencia" class="card"><p class="eyebrow">3. USAR ESTA INTELIGENCIA</p><h2>Contexto de tu negocio</h2><p class="muted">Este formulario es privado y solo prepara tus archivos en el navegador. No genera una estrategia ni guarda una campaña.</p><form id="creative-context-form"><label>Negocio / producto<br><textarea name="business" maxlength="4000" style="min-height:70px"></textarea></label><label>Oferta<br><textarea name="offer" maxlength="4000" style="min-height:70px"></textarea></label><label>Audiencia<br><textarea name="audience" maxlength="4000" style="min-height:70px"></textarea></label><label>Objetivo<br><input name="objective" maxlength="4000"></label><label>Mercado<br><input name="market" maxlength="4000"></label><label>Tono<br><input name="tone" maxlength="4000"></label><label>Preferencia de CTA<br><input name="cta_preference" maxlength="4000"></label><label>Restricciones<br><textarea name="restrictions" maxlength="4000" style="min-height:70px"></textarea></label><label>Contexto adicional<br><textarea name="additional_context" maxlength="4000" style="min-height:70px"></textarea></label><div class="actions"><button id="download-creative-context" type="button">Descargar contexto creativo</button><button id="open-hormozi" type="button" class="secondary">Copiar Super Prompt y abrir Alex Hormozi GPT</button></div></form><p id="creative-context-status" class="muted" aria-live="polite"></p><p class="muted">Adjunta <code>kurukin-creative-context.md</code> al GPT después de descargarlo.</p></section>
+<details class="card"><summary><b>Ver análisis completo</b></summary><div class="step-body">{_channel_intelligence_results(data, latest, db)}</div></details>{advanced}
+<script>(function(){{const form=document.getElementById('creative-context-form'),status=document.getElementById('creative-context-status'),base='/admin/research/channels/{channel_id}/intelligence',gptUrl='{HORMOZI_GPT_URL}';function body(){{return new FormData(form)}}async function download(){{const r=await fetch(base+'/creative-context.md',{{method:'POST',body:body()}});if(!r.ok)throw new Error('No se pudo preparar el contexto creativo.');const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kurukin-creative-context.md';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)}}document.getElementById('download-creative-context').addEventListener('click',async()=>{{try{{await download();status.textContent='Contexto creativo descargado.'}}catch(error){{status.textContent=error.message}}}});document.getElementById('open-hormozi').addEventListener('click',async()=>{{const tab=window.open(gptUrl,'_blank','noopener');try{{const r=await fetch(base+'/creative-super-prompt',{{method:'POST',body:body()}});if(!r.ok)throw new Error();const prompt=await r.text();await navigator.clipboard.writeText(prompt);status.textContent='Super Prompt copiado. Alex Hormozi GPT se abrió en otra pestaña.'}}catch(error){{status.textContent=tab?'Alex Hormozi GPT se abrió. No se pudo copiar el Super Prompt automáticamente.':'No se pudo abrir el GPT ni copiar el Super Prompt.'}}}})}})();</script>'''
+    return _layout('Inteligencia del canal', content)
+
+    # Kept below solely as source-level legacy implementation reference. Every
+    # normal request returns through the Product Lite flow above.
     data = _channel_or_404(db, channel_id)
     analyses = list(db.scalars(select(ChannelIntelligenceAnalysis).where(
         ChannelIntelligenceAnalysis.channel_id == channel_id

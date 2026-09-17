@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 from fastapi.security import HTTPBasicCredentials
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import admin
 from app.config import get_settings
@@ -215,7 +215,7 @@ def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(
     assert videos[0].url.encode() in detail.body
 
 
-def test_single_page_actionable_workflow_and_schema_drift(db):
+def test_product_lite_channel_workflow_and_schema_drift(db):
     channel, _videos = corpus(db)
     data = admin._summary_for_channel(db, channel.id)
     sci = _channel_analysis_payload(data)
@@ -228,8 +228,9 @@ def test_single_page_actionable_workflow_and_schema_drift(db):
     admin.channel_intelligence_import_confirm(channel.id, token, db=db)
     page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     assert page.index('¿POR QUÉ FUNCIONA ESTE CANAL?') < page.index('Ver análisis completo')
-    assert 'Adaptar esto a mi negocio' in page
-    assert 'CREAR CONTENIDO' in page and 'IDEAS DE CONTENIDO Y GUIONES' in page
+    assert 'USAR ESTA INTELIGENCIA' in page and 'Videos representativos' in page
+    assert 'CREAR CONTENIDO' not in page and 'IDEAS DE CONTENIDO Y GUIONES' not in page
+    assert 'kurukin-creative-context.md' in page
     assert 'https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m' in page
     payload = _channel_analysis_payload(data)
     payload['video_intelligence'] = payload.pop('videos')
@@ -258,7 +259,7 @@ def test_external_ai_handoff_is_an_explicit_mobile_safe_three_step_flow(db):
     assert '<details class="card technical" id="channel-prompt-details" open>' not in page
     assert 'No se pudieron copiar automáticamente. Abre “Ver instrucciones”' in page
     assert '@media(max-width:650px)' in page and '.actions>*{width:100%;text-align:center}' in admin._layout('test', '').body.decode()
-    assert 'INTERNAL RESEARCH BACKOFFICE v1.9 · SCI v1 · STRATEGIST v2 · CREATE v1' in page
+    assert 'KURUKIN PRODUCT LITE v1 · SCI v1' in page
 
 
 def test_external_ai_handoff_update_keeps_current_intelligence_separate_from_new_import(db):
@@ -337,7 +338,7 @@ def test_v19_intelligence_hierarchy_prioritizes_thesis_mechanisms_and_collapsed_
     executive = page[:page.index('Ver análisis completo')]
     hierarchy = admin._actionable_playbook(data, SimpleNamespace(channel_intelligence=expanded['channel_intelligence'], selection_mode='all'))
     assert executive.index('¿POR QUÉ FUNCIONA ESTE CANAL?') < executive.index('MECANISMOS PRINCIPALES')
-    assert executive.index('¿QUÉ QUIERES HACER CON ESTO?') < executive.index('MECANISMOS PRINCIPALES')
+    assert executive.index('USAR ESTA INTELIGENCIA') < executive.index('MECANISMOS PRINCIPALES')
     assert hierarchy.count('class="mechanism-rank"') == 5
     assert 'DOLORES QUE ACTIVAN' in hierarchy and 'DESEOS QUE ACTIVAN' in hierarchy and 'Ver todos' in hierarchy
     assert '<details class="evidence-detail"><summary>Ver evidencia</summary>' in hierarchy
@@ -364,10 +365,9 @@ def test_personal_strategy_v2_validates_persists_private_context_and_renders(db,
     assert stored.strategy_json == strategy and stored.private_context['business'] == 'Consultoría privada'
     assert 'Consultoría privada' not in db.scalar(select(ChannelStrategicPlaybook)).payload_json['executive_thesis']
     page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
-    assert 'TU ESTRATEGIA' in page and 'QUÉ ADAPTAR' in page and 'QUÉ NO COPIAR' in page
-    assert 'QUÉ PROBAR PRIMERO' in page and 'FIRST CONTENT PLAN' in page
-    assert 'Crear contenido con esta estrategia' in page
-    assert 'Mecanismo 6' not in page
+    assert 'TU ESTRATEGIA' not in page and 'QUÉ ADAPTAR' not in page
+    assert 'CREAR CONTENIDO' not in page and 'kurukin-creative-context.md' in page
+    assert 'Advanced / Legacy' in page
 
 
 def test_personal_strategy_v1_is_readable_and_invalid_v2_is_not_persisted(db, monkeypatch):
@@ -386,7 +386,8 @@ def test_personal_strategy_v1_is_readable_and_invalid_v2_is_not_persisted(db, mo
     db.add(PrivatePersonalStrategy(channel_id=channel.id, playbook_id=playbook.id, payload_sha256='e' * 64,
                                    private_context={'business': 'Legacy'}, strategy_json=legacy)); db.commit()
     page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
-    assert 'Estrategia histórica V1: se conserva legible' in page and 'Legacy brief' in page
+    assert 'Estrategia histórica V1: se conserva legible' not in page and 'Legacy brief' not in page
+    assert 'Advanced / Legacy' in page
     bad = _v2_strategy(evidence_id); bad['patterns_to_adapt'][0].pop('evidence_video_ids')
     assert admin.validate_personal_strategy(bad, known_video_ids={evidence_id})
     monkeypatch.setattr(admin, 'configured_personal_generator', lambda _settings: lambda payload: bad)
@@ -517,17 +518,16 @@ def test_inline_dry_run_summary_and_human_video_label(db):
     assert admin._human_video_title(admin._selection(data, 'all')[0]).startswith('Caption')
 
 
-def test_product_ux_v1_human_journey_and_advanced_separation(db, monkeypatch):
+def test_product_lite_marker_and_advanced_separation(db, monkeypatch):
     channel, _videos = corpus(db)
     monkeypatch.setenv('KURUKIN_BUILD_SHA', '193a52fbe8fd1d96336fdf9abc69fb8684452d28')
     get_settings.cache_clear()
 
     detail = admin.research_channel(channel.id, db=db).body.decode()
-    legacy_href = f'/admin/research/channels/{channel.id}/prompt'
-    assert 'DATOS DEL CANAL' in detail and 'INTELIGENCIA' in detail
-    assert 'Falta analizar' in detail and 'Generar inteligencia' in detail
+    assert 'CANAL' in detail and 'INTELIGENCIA' in detail
+    assert 'Preparar Structured Channel Intelligence' in detail
     assert 'NO_INTELLIGENCE' not in detail
-    assert 'Generador legacy' in detail
+    assert 'Advanced / Legacy' in detail
 
     legacy = admin.prompt_page(channel.id, db=db).body.decode()
     assert 'LEGACY PROMPT GENERATOR' in legacy
@@ -537,12 +537,12 @@ def test_product_ux_v1_human_journey_and_advanced_separation(db, monkeypatch):
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'INTERNAL RESEARCH BACKOFFICE v1.9 · SCI v1 · STRATEGIST v2 · CREATE v1 · Build 193a52f' in page
-        assert '1&nbsp; Canal' in page and '4&nbsp; Contenido' in page
+        assert 'KURUKIN PRODUCT LITE v1 · SCI v1 · Build 193a52f' in page
+        assert '1&nbsp; CANAL' in page and '3&nbsp; USAR INTELIGENCIA' in page
     assert 'Canales' in index and 'Siguiente paso' in index
     assert 'channel-list' in index and '<table>' not in index
     assert '@media(max-width:650px)' in index
-    assert 'Falta analizar' in intelligence and 'NO_INTELLIGENCE' not in intelligence
+    assert 'Preparar Structured Channel Intelligence' in intelligence and 'NO_INTELLIGENCE' not in intelligence
     assert 'Admin / Debug' in index
 
     monkeypatch.delenv('KURUKIN_BUILD_SHA')
@@ -561,7 +561,7 @@ def test_product_ux_translates_knowledge_states(technical, human):
     assert admin._human_knowledge_state(technical) == human
 
 
-def test_product_ux_fresh_executive_first_private_and_create_flow(db):
+def test_product_lite_fresh_executive_evidence_and_handoff(db):
     channel, _videos = corpus(db)
     data = admin._summary_for_channel(db, channel.id)
     sci = _channel_analysis_payload(data)
@@ -574,15 +574,47 @@ def test_product_ux_fresh_executive_first_private_and_create_flow(db):
     admin.channel_intelligence_import_confirm(channel.id, token, db=db)
     page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     executive = page[:page.index('Ver análisis completo')]
-    assert 'Inteligencia actualizada' in executive
     assert '¿POR QUÉ FUNCIONA ESTE CANAL?' in executive
     assert 'FÓRMULA DOMINANTE' in executive
-    assert 'Adaptar esto a mi negocio' in executive
+    assert 'Preparar contexto creativo' in executive
     assert 'NO_INTELLIGENCE' not in executive and 'SEMANTIC_DELTA' not in executive
-    assert 'ADAPTAR ESTA INTELIGENCIA A MI NEGOCIO' in page and 'Crear contenido' in page
-    assert 'private-context' in page and 'name="tone"' in page
+    assert 'USAR ESTA INTELIGENCIA' in page and 'Videos representativos' in page
+    assert 'creative-context-form' in page and 'name="tone"' in page
+    assert 'Copiar Super Prompt y abrir Alex Hormozi GPT' in page
+    assert 'CREAR CONTENIDO' not in page and 'Generar mi estrategia' not in page
     assert 'Auto Curator' not in page
     assert admin._private_context_from_form('Producto', 'Oferta', 'Audiencia', 'Leads', '', '')['tone'] == ''
+
+
+def test_product_lite_creative_context_and_super_prompt_use_existing_evidence_only(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    evidence_id = sci['videos'][0]['video_id']
+    sci['channel_intelligence']['winning_patterns'] = [{
+        'name': 'Problema → mecanismo → siguiente paso', 'description': 'Convierte una tensión concreta en una acción.',
+        'evidence': [{'claim': 'El patrón se repite en videos fuertes.', 'video_ids': [evidence_id]}],
+    }]
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+
+    context = admin._creative_context_from_form('Consultoría', 'Diagnóstico', 'Operadores', 'Leads', 'España',
+                                                'Directo', 'Responder PLAN', 'Sin promesas', 'Contexto privado')
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis))
+    markdown = admin.creative_context_markdown(data, analysis, context, db)
+    prompt = admin.creative_super_prompt(context)
+    download = admin.download_creative_context(channel.id, **context, db=db)
+
+    assert '# CHANNEL INTELLIGENCE' in markdown and '# REPRESENTATIVE EVIDENCE' in markdown
+    assert '# USER CONTEXT' in markdown and 'Consultoría' in markdown
+    assert 'Caption 1' in markdown and 'TikTok:' in markdown and 'Extracto de transcripción' in markdown
+    assert '5 strongest campaigns' in prompt and '3 hook options' in prompt
+    assert 'Do not require JSON' in prompt and 'return or import anything into Kurukin' in prompt
+    assert download.headers['content-disposition'] == 'attachment; filename="kurukin-creative-context.md"'
+    assert download.body.decode() == markdown
+    assert db.scalar(select(func.count()).select_from(PrivatePersonalStrategy)) == 0
+    assert db.scalar(select(func.count()).select_from(PrivateContentPack)) == 0
 
 
 def test_product_ux_pending_keeps_last_intelligence_and_admin_debug_is_separate(db):
@@ -595,7 +627,7 @@ def test_product_ux_pending_keeps_last_intelligence_and_admin_debug_is_separate(
     videos[0].caption = 'Contenido nuevo para actualizar'; db.commit()
     page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     primary = page[:page.index('Ver análisis completo')]
-    assert 'Mostrando la última inteligencia disponible. Hay una actualización pendiente.' in primary
+    assert 'Hay evidencia nueva disponible. La última inteligencia sigue disponible.' in primary
     assert 'Actualizar inteligencia' in primary
     assert 'SEMANTIC_DELTA' not in primary
     system = admin.admin_system().body.decode()
