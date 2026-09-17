@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import zipfile
@@ -6,7 +7,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from fastapi.security import HTTPBasicCredentials
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -410,6 +411,30 @@ def _content_pack(channel, evidence_id, pattern='Pain → meaning → hope'):
     }
 
 
+def _real_cross_section_content_pack(channel, evidence_id, pattern='Pain → meaning → hope'):
+    """Six ideas and their corresponding scripts intentionally share human titles."""
+    payload = _content_pack(channel, evidence_id, pattern)
+    titles = [
+        'Cuando una conversación con tu madre termina en culpa',
+        'Poner límites sin explicar todo',
+        'La carga que no te corresponde',
+        'Por qué repetir la discusión no resuelve nada',
+        'Una forma más clara de pedir espacio',
+        'El patrón familiar que puedes observar hoy',
+    ]
+    payload['content_ideas'] = [{
+        'title': title, 'objective': 'Abrir conversación', 'hook': 'Esto puede estar pasando.',
+        'angle': 'Educación práctica', 'pain': 'Culpa', 'desire': 'Claridad', 'mechanism': 'Reframe',
+        'cta': 'Escribe CLARIDAD', 'source_patterns': [pattern], 'source_evidence_video_ids': [evidence_id],
+    } for title in titles]
+    payload['scripts'] = [{
+        'title': title, 'objective': 'Abrir conversación', 'duration_target': '45 segundos',
+        'hook': 'Esto puede estar pasando.', 'body': 'Nombra el patrón y ofrece un siguiente paso responsable.',
+        'cta': 'Escribe CLARIDAD', 'source_patterns': [pattern], 'source_evidence_video_ids': [evidence_id],
+    } for title in titles]
+    return payload
+
+
 def test_private_content_pack_contract_prompt_import_and_render(db):
     channel, _videos = corpus(db)
     data = admin._summary_for_channel(db, channel.id)
@@ -441,6 +466,45 @@ def test_private_content_pack_contract_prompt_import_and_render(db):
     assert analysis.channel_intelligence == sci['channel_intelligence']  # private data never enters global SCI
     rendered = admin._content_pack_results(data, analysis, stored)
     assert 'A better way' in rendered and 'Ver patrón de origen' in rendered and 'Caption 1' in rendered
+
+
+def test_content_pack_allows_matching_idea_and_script_titles_through_dry_run(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    evidence_id = sci['videos'][0]['video_id']
+    sci['channel_intelligence']['winning_patterns'] = [{'name': 'Pain → meaning → hope', 'description': 'A repeatable reframe.',
+        'evidence': [{'claim': 'Repeated in strong videos.', 'video_ids': [evidence_id]}]}]
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    payload = _real_cross_section_content_pack(channel, evidence_id)
+    analysis = db.scalar(select(ChannelIntelligenceAnalysis))
+    errors = admin.validate_content_pack(payload, channel_id=str(channel.id), username=channel.username,
+                                         known_patterns=set(admin._known_patterns(analysis)), known_video_ids={evidence_id})
+    assert errors == []
+    upload = UploadFile(filename='kurukin-content-pack.json', file=io.BytesIO(json.dumps(payload).encode()))
+    response = asyncio.run(admin.content_pack_import_dry_run(
+        channel.id, upload, 'Producto', 'Oferta', 'Audiencia', 'Leads', 'Directo', '', '', '', '', db=db))
+    assert response.status_code == 200 and b'"ok":true' in response.body
+
+
+@pytest.mark.parametrize(('collection', 'expected'), [
+    ('content_ideas', 'Hay títulos duplicados dentro de Ideas de contenido'),
+    ('scripts', 'Hay títulos duplicados dentro de Guiones'),
+])
+def test_content_pack_rejects_titles_duplicated_within_the_same_section(db, collection, expected):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    evidence_id = sci['videos'][0]['video_id']
+    pattern = 'Pain → meaning → hope'
+    payload = _real_cross_section_content_pack(channel, evidence_id, pattern)
+    payload[collection][1]['title'] = payload[collection][0]['title']
+    errors = admin.validate_content_pack(payload, channel_id=str(channel.id), username=channel.username,
+                                         known_patterns={pattern}, known_video_ids={evidence_id})
+    assert any(error.startswith(expected) for error in errors)
+    assert not any('across ideas and scripts' in error for error in errors)
 
 
 def test_inline_dry_run_summary_and_human_video_label(db):

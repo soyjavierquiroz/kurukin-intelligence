@@ -87,7 +87,6 @@ def validate_content_pack(value: Any, *, channel_id: str, username: str,
                 errors.append('$.strategy.primary_patterns contains unknown patterns: ' + ', '.join(unknown[:10]))
     entries = (('content_ideas', ('title', 'objective', 'hook', 'angle', 'pain', 'desire', 'mechanism', 'cta')),
                ('scripts', ('title', 'objective', 'duration_target', 'hook', 'body', 'cta')))
-    titles: set[str] = set()
     for collection, fields in entries:
         values = value.get(collection)
         if not isinstance(values, list) or not values:
@@ -95,15 +94,18 @@ def validate_content_pack(value: Any, *, channel_id: str, username: str,
             continue
         if len(values) > 100:
             errors.append(f'$.{collection} has too many entries')
-        local_titles: list[str] = []
+        local_titles: dict[str, str] = {}
+        duplicates: set[str] = set()
         for index, item in enumerate(values):
             _entry(item, f'$.{collection}[{index}]', fields, known_patterns, known_video_ids, errors)
             if isinstance(item, dict) and isinstance(item.get('title'), str):
-                local_titles.append(item['title'].strip().casefold())
-        if len(local_titles) != len(set(local_titles)):
-            errors.append(f'$.{collection} contains duplicate titles')
-        overlap = titles.intersection(local_titles)
-        if overlap:
-            errors.append('Duplicate titles across ideas and scripts: ' + ', '.join(sorted(overlap)[:10]))
-        titles.update(local_titles)
+                normalized = item['title'].strip().casefold()
+                if normalized in local_titles:
+                    duplicates.add(normalized)
+                else:
+                    local_titles[normalized] = item['title'].strip()
+        if duplicates:
+            label = 'Ideas de contenido' if collection == 'content_ideas' else 'Guiones'
+            errors.append(f'Hay títulos duplicados dentro de {label}: ' + ', '.join(
+                local_titles[title] for title in sorted(duplicates)[:10]))
     return errors[:100]
