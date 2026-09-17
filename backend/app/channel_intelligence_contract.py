@@ -26,7 +26,7 @@ def _text_list(maximum: int = 30) -> dict[str, Any]:
 
 EVIDENCE_SCHEMA: dict[str, Any] = {
     'type': 'object', 'additionalProperties': False, 'required': ['claim', 'video_ids'],
-    'properties': {'claim': _string(600), 'video_ids': {'type': 'array', 'minItems': 1, 'maxItems': 25, 'items': _string(64), 'uniqueItems': True}},
+    'properties': {'claim': _string(600), 'video_ids': {'type': 'array', 'minItems': 1, 'maxItems': 25, 'items': _string(64)}},
 }
 VIDEO_INTELLIGENCE_SCHEMA: dict[str, Any] = {
     'type': 'object', 'additionalProperties': False, 'required': ['video_id', 'analysis_status', 'evidence'],
@@ -69,6 +69,50 @@ CHANNEL_ANALYSIS_JSON_SCHEMA: dict[str, Any] = {
 
 def canonical_json_sha256(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def normalize_channel_analysis_evidence(value: Any) -> int:
+    """Drop repeated valid IDs from individual evidence references in place.
+
+    The external producer can harmlessly repeat a cited video inside one
+    ``evidence.video_ids`` list.  Preserve its first-seen order, but never
+    alter root ``videos`` or any malformed/non-string value: those remain for
+    the strict validator to reject.
+    """
+    removed = 0
+
+    def normalize_entries(entries: Any) -> None:
+        nonlocal removed
+        if not isinstance(entries, list):
+            return
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get('video_ids'), list):
+                continue
+            seen: set[str] = set()
+            normalized = []
+            for video_id in entry['video_ids']:
+                if isinstance(video_id, str) and video_id in seen:
+                    removed += 1
+                    continue
+                if isinstance(video_id, str):
+                    seen.add(video_id)
+                normalized.append(video_id)
+            entry['video_ids'] = normalized
+
+    if not isinstance(value, dict):
+        return removed
+    for video in value.get('videos', []):
+        if isinstance(video, dict):
+            normalize_entries(video.get('evidence'))
+    channel_intelligence = value.get('channel_intelligence')
+    if not isinstance(channel_intelligence, dict):
+        return removed
+    for section in ('pains', 'desires', 'hooks', 'topics', 'winning_patterns', 'narratives',
+                    'repetition_clusters', 'ctas', 'offers', 'opportunities'):
+        for item in channel_intelligence.get(section, []):
+            if isinstance(item, dict):
+                normalize_entries(item.get('evidence'))
+    return removed
 
 
 def _check_object(value: Any, schema: dict[str, Any], path: str, errors: list[str]) -> None:

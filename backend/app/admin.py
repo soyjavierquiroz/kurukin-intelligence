@@ -31,7 +31,7 @@ from .config import get_settings
 from .db import get_db
 from .channel_intelligence_contract import (
     CHANNEL_ANALYSIS_JSON_SCHEMA, CHANNEL_INTELLIGENCE_PROMPT_VERSION, CHANNEL_INTELLIGENCE_SCHEMA_VERSION,
-    canonical_json_sha256, validate_channel_analysis,
+    canonical_json_sha256, normalize_channel_analysis_evidence, validate_channel_analysis,
 )
 from .channel_update_contract import (CHANNEL_UPDATE_JSON_SCHEMA, CHANNEL_UPDATE_PROMPT_VERSION,
     CHANNEL_UPDATE_SCHEMA_VERSION, validate_channel_update)
@@ -711,7 +711,7 @@ Explicitly prohibited aliases: `video_intelligence`, `video_analysis`, `items`, 
 
 Set `schema` to `{CHANNEL_INTELLIGENCE_SCHEMA_VERSION}`, `prompt_version` to `{CHANNEL_INTELLIGENCE_PROMPT_VERSION}`, and `research_pack.hash` exactly to `{pack_hash}`. Set `research_pack.channel_username` and `research_pack.selection_mode` from this pack, and `research_pack.video_count` to {len(records)}.
 
-If the Research Pack contains N videos, `videos[]` MUST contain exactly N video objects. Every exported `video_id` appears exactly once: no missing videos, unknown videos, or duplicates. Every `evidence.video_ids` reference must be an exact `video_id` from this Research Pack.
+If the Research Pack contains N videos, `videos[]` MUST contain exactly N video objects. Every exported `video_id` appears exactly once: no missing videos, unknown videos, or duplicates. Every `evidence.video_ids` reference must be an exact `video_id` from this Research Pack. Within every `evidence.video_ids` array, each `video_id` must appear at most once. Never repeat the same `video_id` inside a single evidence object.
 
 For a low-information video use `analysis_status = insufficient_content`; do not fabricate semantic conclusions. Canonical metrics belong to Kurukin. Per-video intelligence MUST NOT return or restate `views`, `likes`, `comments`, `shares`, `favorites`, `engagement_rate`, or `outlier_score`. Do NOT create `performance_interpretation` or any field that duplicates metrics.
 
@@ -780,8 +780,10 @@ Set `base_state.analysis_id` to `{prior.id}`, `base_state.payload_sha256` to `{p
 `upsert_videos` MUST contain exactly these {len(delta)} new or changed video IDs, once each:
 {json.dumps(delta, ensure_ascii=False)}
 
-Every evidence video ID must be in the merged corpus provided by the pack. For low-information videos use
-`analysis_status = insufficient_content`; do not fabricate conclusions. Canonical metrics belong to Kurukin.
+Every evidence video ID must be in the merged corpus provided by the pack. Within every `evidence.video_ids`
+array, each `video_id` must appear at most once. Never repeat the same `video_id` inside a single evidence
+object. For low-information videos use `analysis_status = insufficient_content`; do not fabricate conclusions.
+Canonical metrics belong to Kurukin.
 
 For every channel-level pattern, use `description` for WHAT the mechanism is and HOW it appears. Use
 `why_it_matters` only for its DISTINCT strategic implication. DO NOT repeat or paraphrase `description`
@@ -834,33 +836,37 @@ async function copyCurrentPrompt(){{try{{if(!navigator.clipboard||!navigator.cli
 async function manualCopy(){{const copied=await copyCurrentPrompt();copyStatus.textContent=copied?'Instrucciones copiadas.':'No se pudieron copiar automáticamente. Abre “Ver instrucciones” y copia el texto manualmente.';}}
 document.getElementById('copy-channel-prompt').addEventListener('click',manualCopy);document.getElementById('copy-channel-prompt-manual').addEventListener('click',manualCopy);
 document.getElementById('open-hormozi').addEventListener('click',()=>{{window.open(gptUrl,'_blank','noopener');copyCurrentPrompt().then(copied=>{{copyStatus.textContent=copied?'Instrucciones copiadas. Alex Hormozi GPT se abrió en una nueva pestaña.':'Alex Hormozi GPT se abrió en una nueva pestaña, pero no se pudieron copiar las instrucciones. Abre “Ver instrucciones” y cópialas manualmente.';if(newAnalysis)newAnalysis.textContent='en progreso en ChatGPT';}});}});
-input.addEventListener('change',async()=>{{if(!input.files[0])return;if(newAnalysis)newAnalysis.textContent='listo para importar';const body=new FormData();body.append('file',input.files[0]);const r=await fetch(base+'/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('analysis-result');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+((x.errors||['No se pudo validar el archivo.']).map(v=>'<li>'+v+'</li>').join(''))+'</ul></div>';return}}box.innerHTML='<div class="card"><h3>Listo para confirmar</h3><button id="confirm-analysis">Confirmar inteligencia</button></div>';document.getElementById('confirm-analysis').addEventListener('click',async()=>{{const confirm=new FormData();confirm.append('token',x.token);const done=await fetch(base+'/confirm',{{method:'POST',body:confirm}});if((await done.json()).ok)location.href='/admin/research/channels/{channel_id}/intelligence';}});}});
+input.addEventListener('change',async()=>{{if(!input.files[0])return;if(newAnalysis)newAnalysis.textContent='listo para importar';const body=new FormData();body.append('file',input.files[0]);const r=await fetch(base+'/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('analysis-result');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+((x.errors||['No se pudo validar el archivo.']).map(v=>'<li>'+v+'</li>').join(''))+'</ul></div>';return}}const warningHtml=(x.warnings||[]).length?'<div class="card warn"><b>Advertencia</b><ul>'+x.warnings.map(v=>'<li>'+v+'</li>').join('')+'</ul></div>':'';box.innerHTML=warningHtml+'<div class="card"><h3>Listo para confirmar</h3><button id="confirm-analysis">Confirmar inteligencia</button></div>';document.getElementById('confirm-analysis').addEventListener('click',async()=>{{const confirm=new FormData();confirm.append('token',x.token);const done=await fetch(base+'/confirm',{{method:'POST',body:confirm}});if((await done.json()).ok)location.href='/admin/research/channels/{channel_id}/intelligence';}});}});
 }})();</script>'''
     return _layout(title, content)
 
 
-def dry_run_channel_intelligence_import(db: Session, channel_id: uuid.UUID, raw: bytes) -> tuple[dict[str, Any] | None, list[str], str | None, str | None]:
+def dry_run_channel_intelligence_import(db: Session, channel_id: uuid.UUID, raw: bytes) -> tuple[dict[str, Any] | None, list[str], list[str], str | None, str | None]:
     """Parse and validate an import without writing any intelligence records."""
     if len(raw) > CHANNEL_INTELLIGENCE_IMPORT_MAX_BYTES:
         raise HTTPException(413, 'Channel Intelligence file exceeds 5 MiB')
     try:
         value = json.loads(raw.decode('utf-8', errors='strict'))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return None, ['Upload one valid UTF-8 JSON object.'], None, None
+        return None, ['Upload one valid UTF-8 JSON object.'], [], None, None
     if not isinstance(value, dict):
-        return None, ['The upload must be one JSON object.'], None, None
+        return None, ['The upload must be one JSON object.'], [], None, None
     data = _channel_or_404(db, channel_id)
     research_pack = value.get('research_pack')
     pack_hash = research_pack.get('hash') if isinstance(research_pack, dict) else None
     resolved = _research_pack_by_hash(data, pack_hash) if isinstance(pack_hash, str) else None
     if resolved is None:
-        return value, ['research_pack_hash does not match a current non-empty Research Pack for this channel. Re-export, re-analyze, and upload again.'], None, None
+        return value, ['research_pack_hash does not match a current non-empty Research Pack for this channel. Re-export, re-analyze, and upload again.'], [], None, None
     mode, records = resolved
     if isinstance(research_pack, dict):
         if research_pack.get('channel_username') != data['channel'].username:
-            return value, [f"research_pack.channel_username must equal @{data['channel'].username}."], None, None
+            return value, [f"research_pack.channel_username must equal @{data['channel'].username}."], [], None, None
         if research_pack.get('selection_mode') != mode:
-            return value, ['research_pack.selection_mode does not match the Research Pack hash.'], None, None
+            return value, ['research_pack.selection_mode does not match the Research Pack hash.'], [], None, None
+    removed_duplicate_references = normalize_channel_analysis_evidence(value)
+    warnings = (['Se eliminó 1 referencia de evidencia duplicada.'] if removed_duplicate_references == 1 else
+                [f'Se eliminaron {removed_duplicate_references} referencias de evidencia duplicadas.']
+                if removed_duplicate_references else [])
     errors = validate_channel_analysis(value, {record['video_id'] for record in records})
     payload_sha256 = canonical_json_sha256(value)
     existing = db.scalar(select(ChannelIntelligenceAnalysis).where(
@@ -872,7 +878,7 @@ def dry_run_channel_intelligence_import(db: Session, channel_id: uuid.UUID, raw:
         errors.append('This Research Pack already has a historical analysis. Generate a new Research Pack before importing another analysis; existing history is never overwritten.')
     status = ('ALREADY_IMPORTED' if existing is not None and existing.payload_sha256 == payload_sha256 else
               'PACK_ALREADY_IMPORTED' if existing is not None else 'NEW')
-    return value, errors, mode, status
+    return value, errors, warnings, mode, status
 
 
 def _human_video_title(record: dict[str, Any]) -> str:
@@ -1568,7 +1574,7 @@ def _dry_run_summary(value: dict[str, Any], data: dict[str, Any], records: list[
 @router.post('/research/channels/{channel_id}/intelligence/import/dry-run')
 async def channel_intelligence_import_dry_run(channel_id: uuid.UUID, file: UploadFile = File(...), _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     data = _channel_or_404(db, channel_id)
-    value, errors, mode, status = dry_run_channel_intelligence_import(
+    value, errors, warnings, mode, status = dry_run_channel_intelligence_import(
         db, channel_id, await file.read(CHANNEL_INTELLIGENCE_IMPORT_MAX_BYTES + 1)
     )
     if value is None or errors:
@@ -1576,7 +1582,8 @@ async def channel_intelligence_import_dry_run(channel_id: uuid.UUID, file: Uploa
     assert mode is not None and status is not None
     token = _store_pending_channel_intelligence(PendingChannelIntelligenceImport(
         channel_id, value, mode, canonical_json_sha256(value), time.time()))
-    return JSONResponse({'ok': True, 'token': token, 'status': status, 'summary': _dry_run_summary(value, data, _selection(data, mode))})
+    return JSONResponse({'ok': True, 'token': token, 'status': status, 'warnings': warnings,
+                         'summary': _dry_run_summary(value, data, _selection(data, mode))})
 
 
 @router.post('/research/channels/{channel_id}/intelligence/import/confirm')
@@ -1585,36 +1592,37 @@ def channel_intelligence_import_confirm(channel_id: uuid.UUID, token: str = Form
     data = _channel_or_404(db, channel_id)
     # Re-validate the live corpus: a transcript/import change between preview
     # and confirmation must not silently attach analysis to different evidence.
-    _value, errors, mode, _status = dry_run_channel_intelligence_import(
+    normalized_payload, errors, _warnings, mode, _status = dry_run_channel_intelligence_import(
         db, channel_id, json.dumps(pending.payload, ensure_ascii=False).encode('utf-8'))
-    if errors or mode != pending.selection_mode:
+    if errors or normalized_payload is None or mode != pending.selection_mode:
         raise HTTPException(409, 'Research Pack changed since dry run; export and analyze it again')
-    pack_hash = pending.payload['research_pack']['hash']
+    payload_sha256 = canonical_json_sha256(normalized_payload)
+    pack_hash = normalized_payload['research_pack']['hash']
     analysis = db.scalar(select(ChannelIntelligenceAnalysis).where(
         ChannelIntelligenceAnalysis.channel_id == channel_id,
         ChannelIntelligenceAnalysis.research_pack_hash == pack_hash,
         ChannelIntelligenceAnalysis.schema_version == CHANNEL_INTELLIGENCE_SCHEMA_VERSION,
     ).with_for_update())
-    if analysis is not None and analysis.payload_sha256 == pending.payload_sha256:
+    if analysis is not None and analysis.payload_sha256 == payload_sha256:
         return JSONResponse({'ok': True, 'already_imported': True, 'analysis_id': str(analysis.id)})
     changed = analysis is not None
     if analysis is None:
         analysis = ChannelIntelligenceAnalysis(channel_id=channel_id, research_pack_hash=pack_hash,
             schema_version=CHANNEL_INTELLIGENCE_SCHEMA_VERSION, selection_mode=mode,
-            payload_sha256=pending.payload_sha256, channel_intelligence=pending.payload['channel_intelligence'],
+            payload_sha256=payload_sha256, channel_intelligence=normalized_payload['channel_intelligence'],
             semantic_corpus_hash=semantic_corpus_hash(_selection(data, mode)),
             performance_state_hash=performance_state_hash(_selection(data, mode)),
             analysis_contract_version=ANALYSIS_CONTRACT_VERSION)
         db.add(analysis); db.flush()
     else:
         raise HTTPException(409, 'Historical Channel Intelligence snapshots are immutable')
-    ids = [item['video_id'] for item in pending.payload['videos']]
+    ids = [item['video_id'] for item in normalized_payload['videos']]
     videos = {video.tiktok_id: video for video in db.scalars(select(Video).where(
         Video.channel_id == channel_id, Video.tiktok_id.in_(ids)
     ))}
     if set(videos) != set(ids):
         raise HTTPException(409, 'Research Pack videos changed since dry run; export and analyze it again')
-    for item in pending.payload['videos']:
+    for item in normalized_payload['videos']:
         db.add(ChannelVideoIntelligence(analysis_id=analysis.id, video_id=videos[item['video_id']].id,
                                         intelligence=item,
                                         semantic_source_hash=canonical_json_sha256(semantic_video(next(

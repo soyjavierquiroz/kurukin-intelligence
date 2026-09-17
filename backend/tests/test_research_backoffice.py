@@ -185,15 +185,16 @@ def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(
     channel, videos = corpus(db)
     data = admin._summary_for_channel(db, channel.id)
     payload = _channel_analysis_payload(data)
-    value, errors, mode, status = admin.dry_run_channel_intelligence_import(
+    value, errors, warnings, mode, status = admin.dry_run_channel_intelligence_import(
         db, channel.id, json.dumps(payload).encode())
-    assert value == payload and errors == [] and mode == 'all' and status == 'NEW'
+    assert value == payload and errors == [] and warnings == [] and mode == 'all' and status == 'NEW'
     prompt = admin.channel_intelligence_prompt(data)
     assert 'videos[]` MUST contain exactly N video objects' in prompt
     expected_filename = admin.channel_analysis_filename(channel.username, payload['research_pack']['hash'])
     assert f'Required output filename: `{expected_filename}`' in prompt
     assert f'Create and attach/downloadable file: `{expected_filename}`' in prompt
     assert 'DO NOT repeat or paraphrase `description` inside `why_it_matters`.' in prompt
+    assert 'Within every `evidence.video_ids` array, each `video_id` must appear at most once.' in prompt
     assert 'video_intelligence' in prompt and 'performance_interpretation' in prompt
 
     token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
@@ -204,18 +205,66 @@ def test_channel_intelligence_contract_dry_run_confirm_idempotency_and_evidence(
     assert analysis.research_pack_hash == payload['research_pack']['hash']
     assert db.scalar(select(ChannelVideoIntelligence).where(ChannelVideoIntelligence.analysis_id == analysis.id))
 
-    _value, errors, mode, status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(payload).encode())
-    assert errors == [] and mode == 'all' and status == 'ALREADY_IMPORTED'
+    _value, errors, warnings, mode, status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(payload).encode())
+    assert errors == [] and warnings == [] and mode == 'all' and status == 'ALREADY_IMPORTED'
     token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
         channel.id, payload, mode, admin.canonical_json_sha256(payload), 1e20))
     response = admin.channel_intelligence_import_confirm(channel.id, token, db=db)
     assert b'"already_imported":true' in response.body
 
     incomplete = {**payload, 'videos': payload['videos'][:-1]}
-    _value, errors, _mode, _status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(incomplete).encode())
+    _value, errors, _warnings, _mode, _status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(incomplete).encode())
     assert any('missing Research Pack videos' in error for error in errors)
     detail = admin.channel_intelligence_detail(channel.id, analysis.id, db=db)
     assert videos[0].url.encode() in detail.body
+
+
+def test_duplicate_evidence_references_are_normalized_warned_and_imported(db):
+    channel, videos = corpus(db)
+    videos[0].tiktok_id = '7639510702062849301'
+    db.commit()
+    data = admin._summary_for_channel(db, channel.id)
+    payload = _channel_analysis_payload(data)
+    valid_video_id = '7639510702062849301'
+    other_video_id = next(item['video_id'] for item in payload['videos'] if item['video_id'] != valid_video_id)
+    payload['channel_intelligence']['winning_patterns'] = [{
+        'name': 'Problema → ritual → producto', 'description': 'Un mecanismo con evidencia repetida por error.',
+        'evidence': [{'claim': 'El mismo video fue citado dos veces.',
+                      'video_ids': [valid_video_id, other_video_id, valid_video_id]}],
+    }]
+
+    value, errors, warnings, mode, status = admin.dry_run_channel_intelligence_import(
+        db, channel.id, json.dumps(payload).encode())
+    evidence = value['channel_intelligence']['winning_patterns'][0]['evidence'][0]['video_ids']
+    assert errors == [] and warnings == ['Se eliminó 1 referencia de evidencia duplicada.']
+    assert mode == 'all' and status == 'NEW'
+    assert evidence == [valid_video_id, other_video_id]
+
+    unknown = json.loads(json.dumps(payload))
+    unknown['channel_intelligence']['winning_patterns'][0]['evidence'][0]['video_ids'] = ['unknown-video-id']
+    _value, errors, warnings, _mode, _status = admin.dry_run_channel_intelligence_import(
+        db, channel.id, json.dumps(unknown).encode())
+    assert warnings == [] and any('Evidence references videos outside the Research Pack' in error for error in errors)
+
+    root_duplicate = json.loads(json.dumps(payload))
+    root_duplicate['channel_intelligence']['winning_patterns'][0]['evidence'][0]['video_ids'] = [
+        valid_video_id, other_video_id]
+    root_duplicate['videos'].append(dict(root_duplicate['videos'][0]))
+    _value, errors, warnings, _mode, _status = admin.dry_run_channel_intelligence_import(
+        db, channel.id, json.dumps(root_duplicate).encode())
+    assert warnings == [] and '$.videos video_id values must be unique' in errors
+
+    upload = UploadFile(filename='external-analysis.json', file=io.BytesIO(json.dumps(payload).encode()))
+    preview = asyncio.run(admin.channel_intelligence_import_dry_run(channel.id, upload, db=db))
+    preview_body = json.loads(preview.body)
+    assert preview_body['ok'] is True
+    assert preview_body['warnings'] == ['Se eliminó 1 referencia de evidencia duplicada.']
+    assert 'x.warnings' in admin.channel_intelligence_prompt_page(channel.id, db=db).body.decode()
+
+    confirmed = admin.channel_intelligence_import_confirm(channel.id, preview_body['token'], db=db)
+    assert b'"ok":true' in confirmed.body
+    stored = db.scalar(select(ChannelIntelligenceAnalysis))
+    assert stored.channel_intelligence['winning_patterns'][0]['evidence'][0]['video_ids'] == evidence
 
 
 def test_product_lite_channel_workflow_and_schema_drift(db):
@@ -237,7 +286,7 @@ def test_product_lite_channel_workflow_and_schema_drift(db):
     assert 'https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m' in page
     payload = _channel_analysis_payload(data)
     payload['video_intelligence'] = payload.pop('videos')
-    _value, errors, _mode, _status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(payload).encode())
+    _value, errors, _warnings, _mode, _status = admin.dry_run_channel_intelligence_import(db, channel.id, json.dumps(payload).encode())
     assert any("se recibió 'video_intelligence'" in error.lower() for error in errors)
 
 
