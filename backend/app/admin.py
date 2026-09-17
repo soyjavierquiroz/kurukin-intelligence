@@ -108,13 +108,14 @@ def _build_marker() -> str:
     return value[:7].lower() if re.fullmatch(r'[0-9a-fA-F]{7,64}', value) else 'dev'
 
 
-def _layout(title: str, content: str) -> HTMLResponse:
+def _layout(title: str, content: str, *, product_journey: bool = True) -> HTMLResponse:
+    journey = '''<nav class="journey" aria-label="Recorrido del producto"><span>1&nbsp; Canal</span><span>2&nbsp; Inteligencia</span><span>3&nbsp; Estrategia</span><span>4&nbsp; Contenido</span></nav>''' if product_journey else ''
     return HTMLResponse(f'''<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_e(title)} · Kurukin</title><style>
 :root{{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fa}}
-body{{margin:0}}main{{max-width:1280px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:24px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:10px;padding:18px;margin:14px 0}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:3px 7px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY{{background:#dcfce7;color:#166534}}.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:7px;padding:10px 14px;cursor:pointer;display:inline-block;min-height:44px}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:10px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:340px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}.step{{padding:0;overflow:hidden}}.step>summary{{cursor:pointer;list-style:none;padding:17px;font-size:1.05rem;min-height:24px}}.step>summary::-webkit-details-marker{{display:none}}.step-body{{padding:0 17px 17px}}.step-done{{color:#166534}}.dropzone{{display:block;border:2px dashed #8ba3bd;border-radius:9px;padding:28px 16px;text-align:center;background:#f8fafc;cursor:pointer}}.dropzone input{{display:none}}.error-box{{background:#fee2e2;color:#7f1d1d;padding:12px;border-radius:7px}}.result-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}}.video-card{{border-left:4px solid #1659b7}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}.actions{{display:grid}}.actions>*{{width:100%;text-align:center}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin Internal Research</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.6 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build {_e(_build_marker())}</span></header>{content}</main></body></html>''')
+body{{margin:0}}main{{max-width:1000px;margin:auto;padding:28px 20px 48px}}header{{display:flex;gap:18px;align-items:baseline;justify-content:space-between;margin-bottom:16px}}h1{{font-size:1.55rem;margin:0}}h2{{font-size:1.1rem;margin:24px 0 10px}}h3{{margin:18px 0 8px}}a{{color:#1659b7;text-decoration:none}}a:hover{{text-decoration:underline}}.muted{{color:#64748b}}.card{{background:#fff;border:1px solid #dce3eb;border-radius:12px;padding:18px;margin:14px 0}}.hero{{border-color:#b8d0f3}}.table-wrap{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #e7edf3;vertical-align:top}}th{{white-space:nowrap;color:#526174}}.badge{{display:inline-block;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:700;letter-spacing:.02em}}.NO_CORPUS{{background:#fee2e2;color:#991b1b}}.PARTIAL{{background:#fef3c7;color:#92400e}}.PRIORITY_READY,.ok{{background:#dcfce7;color:#166534}}.warn{{background:#fef3c7;color:#92400e}}.bad{{background:#fee2e2;color:#991b1b}}.legacy{{background:#f1f5f9;color:#475569}}button,.button{{font:inherit;background:#1659b7;color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;display:inline-block;min-height:44px;box-sizing:border-box}}button.secondary,.button.secondary{{background:#e7edf3;color:#172033}}input,select,textarea{{font:inherit;border:1px solid #b9c6d4;border-radius:6px;padding:10px;box-sizing:border-box;max-width:100%}}textarea{{width:100%;min-height:160px;white-space:pre-wrap}}form.inline{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}}.stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.stat{{background:#f8fafc;border:1px solid #e7edf3;border-radius:7px;padding:10px}}.stat b{{display:block;font-size:1.2rem}}code{{font-size:.85em}}.step{{padding:0;overflow:hidden}}.step>summary{{cursor:pointer;list-style:none;padding:17px;font-size:1.05rem;min-height:24px}}.step>summary::-webkit-details-marker{{display:none}}.step-body{{padding:0 17px 17px}}.dropzone{{display:block;border:2px dashed #8ba3bd;border-radius:9px;padding:28px 16px;text-align:center;background:#f8fafc;cursor:pointer}}.dropzone input{{display:none}}.error-box{{background:#fee2e2;color:#7f1d1d;padding:12px;border-radius:7px}}.video-card{{border-left:4px solid #1659b7}}.channel-list{{display:grid;gap:10px}}.channel-list .card{{margin:0}}.journey{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px}}.journey span{{padding:6px 10px;background:#e7edf3;border-radius:999px;font-size:.84rem;font-weight:600}}.eyebrow{{color:#526174;font-weight:700;font-size:.78rem;letter-spacing:.06em}}.insight-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}.insight-grid .card{{margin:0}}.technical{{font-size:.9rem}}@media(max-width:650px){{main{{padding:18px 12px}}header{{display:block}}header .muted{{display:block;margin-top:6px}}.actions{{display:grid}}.actions>*{{width:100%;text-align:center}}.journey{{display:grid;grid-template-columns:1fr 1fr;gap:6px}}.journey span{{text-align:center}}.stat-grid,.insight-grid{{grid-template-columns:1fr}}}}
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">INTERNAL RESEARCH BACKOFFICE v1.7 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -202,8 +203,38 @@ def _summary_for_channel(db: Session, channel_id: uuid.UUID) -> dict[str, Any] |
     return _channel_summary(group) if group else None
 
 
+def _human_knowledge_state(state: str) -> str:
+    """Human-facing status. Raw knowledge-engine values stay in technical details."""
+    return {
+        'NO_INTELLIGENCE': 'Falta analizar',
+        'FRESH': 'Inteligencia actualizada',
+        'PERFORMANCE_CHANGED': 'Hay nuevas métricas',
+        'SEMANTIC_DELTA': 'Hay contenido nuevo por analizar',
+        'CONTRACT_STALE': 'La inteligencia necesita actualizarse',
+    }.get(state, 'Inteligencia pendiente')
+
+
+def _knowledge_action(state: str, channel_id: uuid.UUID) -> tuple[str, str]:
+    """One contextual intelligence action; the route selects the existing workflow."""
+    label = 'Generar inteligencia' if state == 'NO_INTELLIGENCE' else 'Actualizar inteligencia'
+    return label, f'/admin/research/channels/{channel_id}/intelligence/action'
+
+
+def _product_channel_status(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis | None,
+                            state: str | None) -> tuple[str, str, str]:
+    """Small product list state: status, next action, and action route label."""
+    channel_id = data['channel'].id
+    if analysis is not None:
+        if state == 'FRESH':
+            return 'Inteligencia lista', 'Ver inteligencia', f'/admin/research/channels/{channel_id}/intelligence'
+        return 'Actualización disponible', 'Actualizar', _knowledge_action(state or 'CONTRACT_STALE', channel_id)[1]
+    if data['status'] == 'PRIORITY_READY':
+        return 'Listo para analizar', 'Analizar', _knowledge_action('NO_INTELLIGENCE', channel_id)[1]
+    return 'Necesita transcripciones', 'Ver corpus', f'/admin/research/channels/{channel_id}'
+
+
 def _status_badge(status: str) -> str:
-    return f'<span class="badge {status}">{_e(status)}</span>'
+    return f'<span class="badge legacy">{_e(status)}</span>'
 
 
 @router.get('/research', response_class=HTMLResponse)
@@ -213,19 +244,43 @@ def research_index(q: str = '', page: int = 1,
     ids, total = _channels_page(db, q.strip(), page)
     groups = _corpus_data(db, ids)
     summaries = [_channel_summary(groups[channel_id]) for channel_id in ids if channel_id in groups]
-    table_rows = ''.join(
-        f'<tr><td><a href="/admin/research/channels/{row["channel"].id}">@{_e(row["channel"].username)}</a></td>'
-        f'<td>{_e(row["channel"].nickname)}</td><td>{row["total_videos"]}</td><td>{row["priority_count"]}</td>'
-        f'<td>{row["transcripts_total"]}</td><td>{row["priority_transcripts"]}</td><td>{row["missing_priority"]}</td>'
-        f'<td>{_when(row["latest_seen"])}</td><td>{_status_badge(row["status"])}</td></tr>'
-        for row in summaries
-    ) or '<tr><td colspan="9" class="muted">No global TikTok channels found.</td></tr>'
+    channel_ids = [row['channel'].id for row in summaries]
+    analyses = list(db.scalars(select(ChannelIntelligenceAnalysis).where(
+        ChannelIntelligenceAnalysis.channel_id.in_(channel_ids)
+    ).order_by(ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc()))) if channel_ids else []
+    latest_by_channel: dict[uuid.UUID, ChannelIntelligenceAnalysis] = {}
+    for analysis in analyses:
+        latest_by_channel.setdefault(analysis.channel_id, analysis)
+    channel_cards = []
+    for row in summaries:
+        analysis = latest_by_channel.get(row['channel'].id)
+        state = _knowledge_state(db, row, analysis)[0]['state'] if analysis else None
+        status, action, href = _product_channel_status(row, analysis, state)
+        channel_cards.append(
+            f'<article class="card"><h3><a href="/admin/research/channels/{row["channel"].id}">@{_e(row["channel"].username)}</a></h3>'
+            f'<p class="muted">{_e(row["channel"].nickname)}</p><div class="stat-grid"><div class="stat"><b>{row["total_videos"]}</b>videos</div><div class="stat"><b>{row["priority_transcripts"]}</b>transcripciones prioritarias</div></div>'
+            f'<p><span class="eyebrow">ESTADO</span><br>{_status_badge(status)}</p><p><span class="eyebrow">Siguiente paso</span></p><a class="button" href="{_e(href)}">{_e(action)}</a></article>'
+        )
+    channel_cards = ''.join(channel_cards) or '<p class="muted">No hay canales todavía.</p>'
     next_link = '' if page * 50 >= total else f'<a class="button secondary" href="?q={_e(q)}&page={page + 1}">Next page</a>'
-    content = f'''<p class="muted">Global corpus status. <code>PRIORITY_READY</code> means every video in the current priority pool has a global transcript; it does not mean every discovered video is transcribed.</p>
-<form class="inline" method="get"><label>Search username <input name="q" value="{_e(q)}" placeholder="creator"></label><button>Search</button></form>
-<div class="card table-wrap"><table><thead><tr><th>Username</th><th>Nickname</th><th>Global videos</th><th>Priority pool</th><th>Transcripts</th><th>Priority transcripts</th><th>Missing priority</th><th>Latest snapshot / seen</th><th>Corpus status</th></tr></thead><tbody>{table_rows}</tbody></table></div>
-<p class="muted">{total} channel(s), page {page}.</p>{next_link}'''
-    return _layout('Research corpus', content)
+    content = f'''<h2>Canales</h2><p class="muted">Elige un canal para ver qué funciona y adaptarlo a tu negocio.</p>
+<form class="inline" method="get"><label>Buscar canal <input name="q" value="{_e(q)}" placeholder="@creador"></label><button>Buscar</button></form>
+<div class="channel-list">{channel_cards}</div>
+<p class="muted">{total} canal(es), página {page}.</p>{next_link}<p><a href="/admin/system">Admin / Debug</a></p>'''
+    return _layout('Canales', content)
+
+
+@router.get('/system', response_class=HTMLResponse)
+def admin_system(_auth: None = Depends(require_admin)):
+    """Operational entry point kept separate from the product journey."""
+    content = '''<p><a href="/admin/research">← Volver al producto</a></p><h2>Admin / Debug</h2><p class="muted">Controles operativos y diagnóstico; no forman parte del recorrido de Canal → Inteligencia → Estrategia → Contenido.</p><div class="card"><h3>Operación</h3><p>Estado de workers, colas, reintentos, migraciones y diagnósticos de hashes se consultan desde las herramientas operativas autorizadas.</p><p><a class="button secondary" href="/admin/debug">Abrir diagnóstico</a></p></div><div class="card" id="auto-curator"><h3>Auto Curator</h3><p>El panel de diagnóstico de Auto Curator sigue siendo una herramienta de administración de la extensión; no se muestra en las páginas de canal.</p></div>'''
+    return _layout('Admin / Debug', content, product_journey=False)
+
+
+@router.get('/debug', response_class=HTMLResponse)
+def admin_debug(_auth: None = Depends(require_admin)):
+    content = '''<p><a href="/admin/system">← Admin / Debug</a></p><h2>Diagnóstico del sistema</h2><div class="card"><p>Este espacio reserva los diagnósticos técnicos de Auto Curator, colas, recuperación y estados internos para administradores.</p><p class="muted">No hay controles de producto aquí.</p></div>'''
+    return _layout('Diagnóstico', content, product_journey=False)
 
 
 def _channel_or_404(db: Session, channel_id: uuid.UUID) -> dict[str, Any]:
@@ -237,26 +292,7 @@ def _channel_or_404(db: Session, channel_id: uuid.UUID) -> dict[str, Any]:
 
 @router.get('/research/channels/{channel_id}', response_class=HTMLResponse)
 def research_channel(channel_id: uuid.UUID, _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
-    data = _channel_or_404(db, channel_id)
-    channel = data['channel']
-    priority_rows = []
-    for video, snapshot, transcript, _reason in sorted(
-        data['priority'], key=lambda item: (-data['rates'][item[0].id]['outlier_score'], -item[1].views)
-    ):
-        status = '<span class="badge ok">RESOLVED</span>' if transcript else '<span class="badge warn">MISSING</span>'
-        priority_rows.append(
-            f'<tr><td>{_e(video.tiktok_id)}</td><td>{_when(video.published_at)}</td><td>{snapshot.views:,}</td>'
-            f'<td>{float(data["rates"][video.id]["engagement_rate"]):.3%}</td>'
-            f'<td>{float(data["rates"][video.id]["outlier_score"]):.2f}</td><td>{status}</td>'
-            f'<td>{_e(transcript.model if transcript else "—")}</td></tr>'
-        )
-    priority_table = ''.join(priority_rows) or '<tr><td colspan="7" class="muted">No eligible priority videos under current selection semantics.</td></tr>'
-    content = f'''<p><a href="/admin/research">← Global corpus</a></p><h2>@{_e(channel.username)}</h2><p class="muted">{_e(channel.nickname)} · Stable TikTok author ID: <code>{_e(channel.tiktok_user_id or 'not available')}</code> · {_status_badge(data['status'])}</p>
-<div class="stat-grid"><div class="stat"><b>{data['total_videos']}</b>total videos</div><div class="stat"><b>{data['priority_count']}</b>priority pool</div><div class="stat"><b>{data['transcripts_total']}</b>transcripts total</div><div class="stat"><b>{data['priority_transcripts']}</b>priority transcripts</div><div class="stat"><b>{data['missing_priority']}</b>missing priority</div><div class="stat"><b>{_when(data['latest_seen'])}</b>latest metrics snapshot</div></div>
-<div class="card"><h2>Structured Channel Intelligence</h2><ol><li><b>Preparar investigación</b></li><li><b>Analizar con IA</b></li><li><b>Importar inteligencia</b></li><li><b>Resultados</b></li></ol><div class="actions"><a class="button" href="/admin/research/channels/{channel.id}/intelligence">Structured Channel Intelligence</a></div></div>
-<div class="actions"><a class="button secondary" href="/admin/research/channels/{channel.id}/import">Import historical transcripts</a><a class="button secondary" href="/admin/research/channels/{channel.id}/export">Export Research Pack</a><a class="button secondary" href="/admin/research/channels/{channel.id}/prompt">Generador de prompt legacy</a><a class="button secondary" href="/admin/research/historical-import-prompt">Copy historical import prompt</a></div>
-<h2>Priority videos</h2><div class="card table-wrap"><table><thead><tr><th>Video ID</th><th>Published</th><th>Views</th><th>Engagement rate</th><th>Outlier score</th><th>Transcript</th><th>Source / model</th></tr></thead><tbody>{priority_table}</tbody></table></div>'''
-    return _layout(f'@{channel.username}', content)
+    return channel_intelligence_page(channel_id, db=db)
 
 
 @dataclass
@@ -766,9 +802,10 @@ def _channel_analysis_items(value: dict[str, Any]) -> list[tuple[str, dict[str, 
 
 
 _PLAYBOOK_SECTIONS = (
-    ('winning_patterns', 'Top winning mechanisms'), ('hooks', 'Top hook structures'),
-    ('pains', 'Top pain/desire patterns'), ('narratives', 'Top narrative structures'),
-    ('ctas', 'Top CTA patterns'), ('repetition_clusters', 'Top repetition strategies'),
+    ('winning_patterns', 'LO QUE MÁS REPITEN'), ('hooks', 'HOOKS QUE FUNCIONAN'),
+    ('pains', 'DOLORES QUE ACTIVAN'), ('desires', 'DESEOS QUE ACTIVAN'),
+    ('narratives', 'ESTRUCTURAS NARRATIVAS'), ('ctas', 'QUÉ HACEN CON LA OFERTA'),
+    ('repetition_clusters', 'ESTRATEGIA DE REPETICIÓN'),
 )
 
 
@@ -791,16 +828,16 @@ def _evidence_badges(entries: list[dict[str, Any]], records: dict[str, dict[str,
                 continue
             views = record.get('views')
             outlier = record.get('outlier_score')
-            value = f'{views:,} views' if isinstance(views, int) else 'Evidence'
+            value = f'{views:,} vistas' if isinstance(views, int) else 'Evidencia'
             if outlier is not None:
-                value += f' · outlier {float(outlier):.1f}'
+                value += f' · rendimiento relativo {float(outlier):.1f}'
             badges.append(f'<span class="badge legacy">{_e(value)}</span>')
     return ' '.join(badges[:4]) or '<span class="muted">Evidence cited in imported intelligence.</span>'
 
 
 def _playbook_items(items: list[dict[str, Any]], records: dict[str, dict[str, Any]]) -> str:
     if not items:
-        return '<p class="muted">No imported pattern in this category.</p>'
+        return '<p class="muted">Aún no hay un patrón importado en esta categoría.</p>'
     return ''.join(
         f'<div class="card"><b>{_e(item.get("name") or "Pattern")}</b><p>{_e(item.get("description") or "")}</p>'
         f'<p>{_evidence_badges(item.get("evidence", []), records)}</p></div>'
@@ -817,11 +854,8 @@ def _actionable_playbook(data: dict[str, Any], analysis: ChannelIntelligenceAnal
     )
     winning = value.get('winning_patterns', [])
     formula = ' → '.join(str(item.get('name')) for item in winning[:3] if isinstance(item, dict) and item.get('name')) or 'Use the strongest repeated pattern, then adapt it to your offer.'
-    avoid = value.get('opportunities', [])
-    avoid_text = '; '.join(str(item.get('name')) for item in avoid[:3] if isinstance(item, dict) and item.get('name')) or 'Avoid unsupported claims and weakly evidenced variations.'
-    return f'''<section id="what-works"><h2>WHAT WORKS</h2>{sections}</section>
-<section id="why-it-works"><h2>WHY IT WORKS</h2><div class="card"><p>{_e(value.get('summary') or 'Imported evidence identifies repeated mechanisms across this channel.')}</p><p><b>DO MORE OF THIS</b><br>{_e(formula)}</p><p><b>AVOID / LESS USEFUL</b><br>{_e(avoid_text)}</p><p><b>DOMINANT CONTENT FORMULA</b><br>{_e(formula)}</p></div></section>
-<section id="what-next"><h2>WHAT YOU SHOULD DO NEXT</h2><p>Adapt these proven mechanisms to your own business, offer and audience—without copying the competitor’s identity, wording, claims or creative expression.</p><div class="actions"><button type="button" id="create-from-patterns">Crear contenido basado en estos patrones</button></div></section>'''
+    return f'''<section id="what-works"><h2>¿POR QUÉ FUNCIONA ESTE CANAL?</h2><div class="card hero"><p>{_e(value.get('summary') or 'La inteligencia disponible identifica mecanismos que el canal repite con evidencia.')}</p><p class="eyebrow">FÓRMULA DOMINANTE</p><p><b>{_e(formula)}</b></p></div><div class="insight-grid">{sections}</div></section>
+<section id="what-next"><h2>Qué hacer ahora</h2><p>Adapta los mecanismos probados a tu oferta y audiencia, sin copiar la identidad, el lenguaje ni las afirmaciones del canal.</p><div class="actions"><button type="button" id="adapt-business">Adaptar esto a mi negocio</button></div></section>'''
 
 
 def _strategic_playbook_html(playbook: ChannelStrategicPlaybook, records: dict[str, dict[str, Any]]) -> str:
@@ -869,13 +903,24 @@ def generate_channel_playbook(channel_id: uuid.UUID, _auth: None = Depends(requi
 
 @router.post('/research/channels/{channel_id}/intelligence/personal-strategy')
 def generate_personal_strategy(channel_id: uuid.UUID, business: str = Form(...), offer: str = Form(...), audience: str = Form(...),
-                               goal: str = Form(...), tone: str = Form(...), constraints: str = Form(''),
+                               goal: str = Form(...), tone: str = Form(''), constraints: str = Form(''),
                                _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     analysis = db.scalar(select(ChannelIntelligenceAnalysis).where(ChannelIntelligenceAnalysis.channel_id == channel_id).order_by(
         ChannelIntelligenceAnalysis.created_at.desc(), ChannelIntelligenceAnalysis.id.desc()))
     if analysis is None: raise HTTPException(409, 'Import Channel Intelligence first')
     playbook = _latest_playbook(db, analysis)
-    if playbook is None: raise HTTPException(409, 'Generate the global Playbook first')
+    if playbook is None:
+        # The product flow should not make a user choose or understand the
+        # intermediate public Playbook. Reuse the existing generator here.
+        data = _channel_or_404(db, channel_id)
+        records = _selection(data, analysis.selection_mode)
+        children = [child.intelligence for child, _video in _analysis_video_rows(db, analysis)]
+        try:
+            provider, model, generate = configured_playbook_generator(get_settings())
+            playbook, _reused = get_or_create_playbook(db, channel_id=channel_id, analysis=analysis,
+                records=records, videos=children, provider=provider, model=model, generate=generate)
+        except Exception:
+            return JSONResponse({'ok': False, 'error': 'No pudimos preparar la estrategia del canal en este momento.'}, status_code=503)
     context = _private_context_from_form(business, offer, audience, goal, tone, constraints)
     payload = personal_strategy_input(playbook.payload_json, context)
     digest = canonical_json_sha256(payload)
@@ -894,7 +939,7 @@ def generate_personal_strategy(channel_id: uuid.UUID, business: str = Form(...),
 
 def _private_context_from_form(business: str, offer: str, audience: str, goal: str, tone: str, constraints: str) -> dict[str, str]:
     values = {'business': business, 'offer': offer, 'audience': audience, 'goal': goal, 'tone': tone, 'constraints': constraints}
-    required = ('business', 'offer', 'audience', 'goal', 'tone')
+    required = ('business', 'offer', 'audience', 'goal')
     errors = [f'{field} is required' for field in required if not values[field].strip()]
     errors.extend(f'{field} is too long' for field, value in values.items() if len(value) > 4000)
     if errors:
@@ -952,40 +997,58 @@ def channel_intelligence_page(channel_id: uuid.UUID, _auth: None = Depends(requi
         ChannelIntelligenceAnalysis.channel_id == channel_id
     ).order_by(ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc())))
     latest = analyses[0] if analyses else None
+    channel = data['channel']
+    channel_header = f'''<p><a href="/admin/research">← Canales</a></p><h2>@{_e(channel.username)}</h2><p class="muted">{_e(channel.nickname)}</p>
+<section><p class="eyebrow">DATOS DEL CANAL</p><div class="stat-grid"><div class="stat"><b>✓ {data['total_videos']}</b>videos encontrados</div><div class="stat"><b>✓ {data['priority_count']}</b>videos prioritarios</div><div class="stat"><b>✓ {data['priority_transcripts']}</b>transcripciones prioritarias</div></div></section>'''
     if latest is None:
-        content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(data['channel'].username)}</a></p><h2>Structured Channel Intelligence</h2><div class="card"><span class="badge warn">NO INTELLIGENCE</span><p>Este canal todavía no tiene inteligencia estructurada válida.</p><div class="actions"><a class="button" href="/admin/research/channels/{channel_id}/prompt">Preparar análisis estructurado</a></div></div>'''
-        return _layout('Channel Intelligence', content)
+        label, href = _knowledge_action('NO_INTELLIGENCE', channel_id)
+        content = f'''{channel_header}<section><h2>INTELIGENCIA</h2><div class="card hero"><span class="badge warn">Falta analizar</span><p>Este canal está listo para convertir sus transcripciones en inteligencia útil.</p><div class="actions"><a class="button" href="{href}">{label}</a></div></div></section>
+<details class="card technical"><summary><b>Opciones avanzadas</b></summary><div class="step-body"><p>Herramientas de corpus y diagnóstico para operadores.</p><div class="actions"><a class="button secondary" href="/admin/research/channels/{channel_id}/import">Importar transcripciones históricas</a><a class="button secondary" href="/admin/research/channels/{channel_id}/export">Exportar Research Pack</a><a class="button secondary" href="/admin/research/channels/{channel_id}/prompt">Generador legacy</a></div><details><summary>Detalles técnicos</summary><p>Estado de corpus: <code>{_e(data['status'])}</code></p></details></div></details>'''
+        return _layout(f'@{channel.username}', content)
     state, state_records, delta_ids = _knowledge_state(db, data, latest)
-    status_text = {
-        'FRESH': '✓ Inteligencia actualizada',
-        'PERFORMANCE_CHANGED': 'Las métricas cambiaron; la inteligencia de los videos sigue vigente',
-        'SEMANTIC_DELTA': f'{len(delta_ids)} videos nuevos o modificados por analizar',
-        'CONTRACT_STALE': 'Nueva versión de análisis disponible',
-    }.get(state['state'], 'Inteligencia pendiente')
-    status_action = ('<a class="button" href="/admin/research/channels/%s/intelligence/update.zip">Descargar Incremental Intelligence Update Pack</a>' % channel_id
-                     if state['state'] == 'SEMANTIC_DELTA' else
-                     '<a class="button secondary" href="/admin/research/channels/%s/intelligence/prompt">Forzar nuevo análisis</a>' % channel_id)
+    status_text = _human_knowledge_state(state['state'])
+    pending_notice = '' if state['state'] == 'FRESH' else '<p class="muted">Mostrando la última inteligencia disponible. Hay una actualización pendiente.</p>'
+    action_label, action_href = _knowledge_action(state['state'], channel_id)
+    primary = (f'<button type="button" id="adapt-business">Adaptar esto a mi negocio</button>' if state['state'] == 'FRESH'
+               else f'<a class="button" href="{action_href}">{action_label}</a>')
     playbook = _latest_playbook(db, latest)
     records_by_id = {record['video_id']: record for record in state_records}
-    playbook_block = (_strategic_playbook_html(playbook, records_by_id) if playbook else
-        '<section id="strategic-playbook"><h2>EL PLAYBOOK DEL CANAL</h2><div class="card"><p>Genera un Playbook estratégico desde inteligencia estructurada y evidencia pública compacta.</p><button type="button" id="generate-playbook">Generar Playbook</button><p id="playbook-status" class="muted"></p></div></section>')
     packs = list(db.scalars(select(PrivateContentPack).where(PrivateContentPack.channel_id == channel_id).order_by(PrivateContentPack.updated_at.desc())))
     latest_pack = packs[0] if packs else None
     pack_results = _content_pack_results(data, latest, latest_pack) if latest_pack else '<p class="muted">Aún no has importado contenido privado.</p>'
-    content = f'''<p><a href="/admin/research/channels/{channel_id}">← @{_e(data['channel'].username)}</a></p><h2>Channel Intelligence</h2><div class="card"><span class="badge {'ok' if state['state'] == 'FRESH' else 'warn'}">{_e(state['state'])}</span><p>{_e(status_text)}</p><div class="actions"><a class="button secondary" href="#strategic-playbook">Ver Playbook</a><a class="button" href="#create-flow">Adaptar a mi negocio</a>{status_action}</div></div>{playbook_block}{_actionable_playbook(data, latest)}
+    advanced_playbook = _strategic_playbook_html(playbook, records_by_id) if playbook else '<p>El Playbook estratégico generado sigue disponible para operaciones cuando se necesite.</p><button type="button" id="generate-playbook" class="secondary">Generar Playbook técnico</button><p id="playbook-status" class="muted"></p>'
+    content = f'''{channel_header}<section><h2>INTELIGENCIA</h2><div class="card hero"><span class="badge {'ok' if state['state'] == 'FRESH' else 'warn'}">{_e(status_text)}</span>{pending_notice}<div class="actions">{primary}</div></div></section>{_actionable_playbook(data, latest)}
 <details class="card"><summary><b>Ver análisis completo</b></summary><div class="step-body">{_channel_intelligence_results(data, latest, db)}</div></details>
-<details class="card step" id="create-flow"><summary><b>CREATE v1 · Crea desde estos patrones</b></summary><div class="step-body"><p class="muted">Este contexto y el contenido generado son privados. Nunca se añaden a Channel Intelligence global.</p><form id="private-context"><label>¿Qué vendes?<br><textarea name="business" required maxlength="4000" style="min-height:80px"></textarea></label><label>Offer / price (optional)<br><textarea name="offer" required maxlength="4000" style="min-height:80px"></textarea></label><label>¿A quién?<br><textarea name="audience" required maxlength="4000" style="min-height:80px"></textarea></label><label>¿Qué resultado quieres lograr?<br><textarea name="goal" required maxlength="4000" style="min-height:80px"></textarea></label><label>Tone / style<br><input name="tone" required maxlength="4000"></label><label>Optional constraints<br><textarea name="constraints" maxlength="4000" style="min-height:80px"></textarea></label><div class="actions"><button id="generate-personal-strategy" type="button">Ver mi estrategia primero</button><button id="open-hormozi" type="submit">Crear ideas y guiones con Hormozi</button></div></form><pre id="personal-strategy-result" class="card" hidden></pre><p id="create-status" class="muted"></p><ol><li>Pega las instrucciones en Alex Hormozi — $100M.</li><li>Descarga <code>kurukin-content-pack.json</code>.</li><li>Súbelo abajo para validar y confirmar.</li></ol><form id="content-pack-upload"><label class="dropzone">Sube <b>kurukin-content-pack.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="content-pack-file" type="file" accept=".json,application/json"></label></form><div id="content-pack-dry-run" aria-live="polite"></div></div></details>
-<section id="content-plan"><h2>YOUR CONTENT PLAN</h2><div id="content-pack-results">{pack_results}</div></section>
-<script>(function(){{const base='/admin/research/channels/{channel_id}/intelligence', form=document.getElementById('private-context'), create=document.getElementById('create-flow'), generate=document.getElementById('generate-playbook'), personal=document.getElementById('generate-personal-strategy');if(generate)generate.onclick=async()=>{{const r=await fetch(base+'/playbook/generate',{{method:'POST'}}), x=await r.json();if(x.ok)location.reload();else document.getElementById('playbook-status').textContent=x.error||'No pudimos generar el Playbook en este momento.'}};document.getElementById('create-from-patterns').onclick=()=>{{create.open=true;create.scrollIntoView({{behavior:'smooth',block:'start'}})}};function contextData(){{return new FormData(form)}}if(personal)personal.onclick=async()=>{{const r=await fetch(base+'/personal-strategy',{{method:'POST',body:contextData()}}),x=await r.json();if(!x.ok){{document.getElementById('create-status').textContent=x.error||'Completa los campos privados requeridos.';return}}const box=document.getElementById('personal-strategy-result');box.hidden=false;box.textContent=JSON.stringify(x.strategy,null,2)}};form.addEventListener('submit',async e=>{{e.preventDefault();const r=await fetch(base+'/content-pack/prompt',{{method:'POST',body:contextData()}});if(!r.ok){{document.getElementById('create-status').textContent='Completa los campos privados requeridos.';return}}await navigator.clipboard.writeText(await r.text());window.open('https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m','_blank','noopener');document.getElementById('create-status').textContent='Instrucciones copiadas. Alex Hormozi GPT se abrió en una nueva pestaña.'}});async function dryRun(file){{const body=contextData();body.append('file',file,file.name);const r=await fetch(base+'/content-pack/import/dry-run',{{method:'POST',body}});const x=await r.json(), box=document.getElementById('content-pack-dry-run');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+x.errors.map(escapeHtml).map(v=>'<li>'+v+'</li>').join('')+'</ul></div>';return}}box.innerHTML='<div class="card"><h3>Dry Run</h3><p>✓ Schema · ✓ source channel · ✓ patterns · ✓ evidence IDs · ✓ required fields · ✓ duplicates</p><button id="confirm-content-pack">Confirmar Content Pack</button></div>';document.getElementById('confirm-content-pack').onclick=async()=>{{const body=new FormData();body.append('token',x.token);const confirmed=await fetch(base+'/content-pack/import/confirm',{{method:'POST',body}});const result=await confirmed.json();if(result.ok)location.reload()}}}}function escapeHtml(v){{const d=document.createElement('div');d.textContent=v;return d.innerHTML}}document.getElementById('content-pack-file').addEventListener('change',e=>{{if(e.target.files[0])dryRun(e.target.files[0])}})}})();</script>'''
-    return _layout('Channel Intelligence', content)
+<section id="strategy-flow" class="card"><h2>ADAPTAR A MI NEGOCIO</h2><p class="muted">Tu información es privada y nunca se añade a la inteligencia global del canal.</p><form id="private-context"><label>¿Qué vendes?<br><textarea name="business" required maxlength="4000" style="min-height:80px"></textarea></label><label>¿Cuál es tu oferta?<br><textarea name="offer" required maxlength="4000" style="min-height:80px"></textarea></label><label>¿A quién vendes?<br><textarea name="audience" required maxlength="4000" style="min-height:80px"></textarea></label><label>¿Qué quieres conseguir?<br><select name="goal" required><option value="Leads">Leads</option><option value="Ventas">Ventas</option><option value="Autoridad">Autoridad</option><option value="Audiencia">Audiencia</option></select></label><label>Tono / estilo <span class="muted">(opcional)</span><br><input name="tone" maxlength="4000"></label><label>Contexto adicional <span class="muted">(opcional)</span><br><textarea name="constraints" maxlength="4000" style="min-height:80px"></textarea></label><div class="actions"><button id="generate-personal-strategy" type="button">Generar mi estrategia</button></div></form><div id="personal-strategy-result" class="card" hidden></div><p id="create-status" class="muted"></p></section>
+<details class="card step" id="create-flow"><summary><b>CREAR CONTENIDO</b></summary><div class="step-body"><p>Convierte tu estrategia privada en ideas, hooks, CTAs y guiones.</p><div class="actions"><button id="open-hormozi" type="button">Crear contenido</button></div><ol><li>Las instrucciones se copian y se abre el creador.</li><li>Descarga <code>kurukin-content-pack.json</code>.</li><li>Súbelo para ver tus ideas y guiones aquí.</li></ol><form id="content-pack-upload"><label class="dropzone">Sube <b>kurukin-content-pack.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="content-pack-file" type="file" accept=".json,application/json"></label></form><div id="content-pack-dry-run" aria-live="polite"></div></div></details>
+<section id="content-plan"><h2>IDEAS DE CONTENIDO Y GUIONES</h2><div id="content-pack-results">{pack_results}</div></section>
+<details class="card technical"><summary><b>Opciones avanzadas</b></summary><div class="step-body">{advanced_playbook}<div class="actions"><a class="button secondary" href="/admin/research/channels/{channel_id}/import">Importar transcripciones históricas</a><a class="button secondary" href="/admin/research/channels/{channel_id}/export">Exportar Research Pack</a><a class="button secondary" href="/admin/research/channels/{channel_id}/prompt">Generador legacy</a><a class="button secondary" href="/admin/system">Admin / Debug</a></div><details><summary>Detalles técnicos</summary><p>Estado interno: <code>{_e(state['state'])}</code> · hash semántico <code>{_e(state['semantic_corpus_hash'][:12])}</code> · hash de rendimiento <code>{_e(state['performance_state_hash'][:12])}</code></p></details></div></details>
+<script>(function(){{const base='/admin/research/channels/{channel_id}/intelligence',form=document.getElementById('private-context'),strategy=document.getElementById('strategy-flow'),create=document.getElementById('create-flow'),personal=document.getElementById('generate-personal-strategy'),adapt=document.getElementById('adapt-business'),technical=document.getElementById('generate-playbook');if(adapt)adapt.onclick=()=>strategy.scrollIntoView({{behavior:'smooth',block:'start'}});if(technical)technical.onclick=async()=>{{const r=await fetch(base+'/playbook/generate',{{method:'POST'}}),x=await r.json();if(x.ok)location.reload();else document.getElementById('playbook-status').textContent=x.error||'No se pudo generar el Playbook.'}};function contextData(){{return new FormData(form)}}function text(value){{return Array.isArray(value)?value.join(' · '):(value||'—')}}function line(label,value){{return '<p><b>'+label+'</b><br>'+text(value)+'</p>'}}if(personal)personal.onclick=async()=>{{const r=await fetch(base+'/personal-strategy',{{method:'POST',body:contextData()}}),x=await r.json();if(!r.ok||!x.ok){{document.getElementById('create-status').textContent=x.error||'Completa los campos requeridos.';return}}const s=x.strategy,box=document.getElementById('personal-strategy-result');box.hidden=false;box.innerHTML='<h2>TU ESTRATEGIA</h2>'+line('Qué patrones usar',s.selected_mechanisms)+line('Qué NO copiar',s.risks_or_constraints)+line('Qué dolores trabajar',s.recommended_content_pillars)+line('Qué deseos activar',s.content_positioning)+line('Qué hook families adaptar',s.recommended_hook_mix)+line('Qué content formula usar',s.recommended_narrative_mix)+line('Qué CTA strategy usar',s.recommended_cta_strategy)+'<div class="actions"><button id="create-content-from-strategy" type="button">Crear contenido</button></div>';document.getElementById('create-content-from-strategy').onclick=()=>{{create.open=true;create.scrollIntoView({{behavior:'smooth',block:'start'}})}}}};document.getElementById('open-hormozi').onclick=async()=>{{const r=await fetch(base+'/content-pack/prompt',{{method:'POST',body:contextData()}});if(!r.ok){{document.getElementById('create-status').textContent='Genera primero tu estrategia y completa los campos requeridos.';return}}await navigator.clipboard.writeText(await r.text());window.open('https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m','_blank','noopener');document.getElementById('create-status').textContent='Instrucciones copiadas. El creador se abrió en otra pestaña.'}};async function dryRun(file){{const body=contextData();body.append('file',file,file.name);const r=await fetch(base+'/content-pack/import/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('content-pack-dry-run');if(!x.ok){{box.innerHTML='<div class="error-box"><b>No se puede importar.</b><ul>'+x.errors.map(v=>'<li>'+v+'</li>').join('')+'</ul></div>';return}}box.innerHTML='<div class="card"><h3>Listo para confirmar</h3><p>Ideas: '+x.summary.ideas+' · Guiones: '+x.summary.scripts+'</p><button id="confirm-content-pack">Confirmar contenido</button></div>';document.getElementById('confirm-content-pack').onclick=async()=>{{const body=new FormData();body.append('token',x.token);const confirmed=await fetch(base+'/content-pack/import/confirm',{{method:'POST',body}});if((await confirmed.json()).ok)location.reload()}}}}document.getElementById('content-pack-file').addEventListener('change',e=>{{if(e.target.files[0])dryRun(e.target.files[0])}})}})();</script>'''
+    return _layout('Inteligencia del canal', content)
+
+
+@router.get('/research/channels/{channel_id}/intelligence/action', response_class=HTMLResponse)
+def channel_intelligence_action(channel_id: uuid.UUID, _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+    """Select the pre-existing analysis/update workflow from the live knowledge state."""
+    data = _channel_or_404(db, channel_id)
+    latest = db.scalar(select(ChannelIntelligenceAnalysis).where(
+        ChannelIntelligenceAnalysis.channel_id == channel_id
+    ).order_by(ChannelIntelligenceAnalysis.updated_at.desc(), ChannelIntelligenceAnalysis.id.desc()))
+    if latest is None:
+        return channel_intelligence_prompt_page(channel_id, db=db)
+    state, _records, delta = _knowledge_state(db, data, latest)
+    if state['state'] != 'SEMANTIC_DELTA':
+        return channel_intelligence_prompt_page(channel_id, db=db)
+    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← @{_e(data['channel'].username)}</a></p><h2>Actualizar inteligencia</h2><div class="card hero"><p>Hay contenido nuevo por analizar. La última inteligencia sigue visible mientras completas la actualización.</p><p class="muted">Se actualizarán {len(delta)} video(s) con el flujo incremental existente.</p><div class="actions"><a class="button" href="/admin/research/channels/{channel_id}/intelligence/update.zip">Preparar actualización</a></div></div><details class="card technical"><summary><b>Opciones avanzadas de actualización</b></summary><div class="step-body"><p>Descarga el paquete incremental, procesa el archivo con el contrato de actualización y súbelo aquí.</p><form id="update-upload"><label class="dropzone">Sube <b>kurukin-channel-update.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="update-file" type="file" accept=".json,application/json"></label></form><div id="update-result" aria-live="polite"></div></div></details><script>(function(){{const input=document.getElementById('update-file'),base='/admin/research/channels/{channel_id}/intelligence/update/import';input.addEventListener('change',async()=>{{if(!input.files[0])return;const body=new FormData();body.append('file',input.files[0]);const r=await fetch(base+'/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('update-result');if(!x.ok){{box.textContent=(x.errors||['No se pudo validar la actualización.']).join(' ');return}}box.innerHTML='<button id="confirm-update">Confirmar actualización</button>';document.getElementById('confirm-update').onclick=async()=>{{const confirm=new FormData();confirm.append('token',x.token);const done=await fetch(base+'/confirm',{{method:'POST',body:confirm}});if((await done.json()).ok)location.href='/admin/research/channels/{channel_id}/intelligence'}}}})}})();</script>'''
+    return _layout('Actualizar inteligencia', content)
 
 
 @router.get('/research/channels/{channel_id}/intelligence/prompt', response_class=HTMLResponse)
 def channel_intelligence_prompt_page(channel_id: uuid.UUID, mode: str = 'all', _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
     data = _channel_or_404(db, channel_id)
     prompt = channel_intelligence_prompt(data, mode)
-    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Channel Intelligence</a></p><h2>Contractual external AI prompt</h2><p class="muted">Use it with the matching downloaded Research Pack. The hash binds the result to its evidence set.</p><textarea id="channel-prompt" readonly>{_e(prompt)}</textarea><div class="actions"><button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('channel-prompt').value)">Copy</button><a class="button" href="/admin/research/channels/{channel_id}/export.zip?mode={_e(mode)}">Download matching Research Pack</a></div>'''
-    return _layout('Channel Intelligence prompt', content)
+    content = f'''<p><a href="/admin/research/channels/{channel_id}/intelligence">← Inteligencia</a></p><h2>Generar inteligencia</h2><p class="muted">Prepara el paquete de evidencia y el contrato existente para incorporar la inteligencia del canal.</p><textarea id="channel-prompt" readonly>{_e(prompt)}</textarea><div class="actions"><button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('channel-prompt').value)">Copiar instrucciones</button><a class="button" href="/admin/research/channels/{channel_id}/export.zip?mode={_e(mode)}">Descargar paquete de investigación</a></div><details class="card"><summary><b>Importar inteligencia terminada</b></summary><div class="step-body"><form id="analysis-upload"><label class="dropzone">Sube <b>kurukin-channel-analysis.json</b><br><span class="button secondary">Seleccionar archivo</span><input id="analysis-file" type="file" accept=".json,application/json"></label></form><div id="analysis-result" aria-live="polite"></div></div></details><script>(function(){{const input=document.getElementById('analysis-file'),base='/admin/research/channels/{channel_id}/intelligence/import';input.addEventListener('change',async()=>{{if(!input.files[0])return;const body=new FormData();body.append('file',input.files[0]);const r=await fetch(base+'/dry-run',{{method:'POST',body}}),x=await r.json(),box=document.getElementById('analysis-result');if(!x.ok){{box.textContent=(x.errors||['No se pudo validar la inteligencia.']).join(' ');return}}box.innerHTML='<p>Lista para confirmar.</p><button id="confirm-analysis">Confirmar inteligencia</button>';document.getElementById('confirm-analysis').onclick=async()=>{{const confirm=new FormData();confirm.append('token',x.token);const done=await fetch(base+'/confirm',{{method:'POST',body:confirm}});if((await done.json()).ok)location.href='/admin/research/channels/{channel_id}/intelligence'}}}})}})();</script>'''
+    return _layout('Generar inteligencia', content)
 
 
 @router.get('/research/channels/{channel_id}/intelligence/prompt.txt', response_class=PlainTextResponse)
@@ -1260,7 +1323,7 @@ def _content_pack_results(data: dict[str, Any], analysis: ChannelIntelligenceAna
         return f'<button type="button" class="secondary" onclick="document.getElementById(\'{token}\').open=true;document.getElementById(\'{token}\').scrollIntoView({{behavior:\'smooth\'}})">Ver patrón de origen</button><details id="{token}" class="card"><summary>Patrón de origen</summary>{_source_pattern_html(data, analysis, names)}</details>'
     ideas = ''.join(f'<div class="card"><h3>{_e(item["title"])}</h3><p><b>Hook</b><br>{_e(item["hook"])}</p><p><b>Angle</b><br>{_e(item["angle"])}</p><p><b>Objective</b><br>{_e(item["objective"])}</p><p><b>CTA</b><br>{_e(item["cta"])}</p><div class="actions"><button type="button" class="secondary" onclick="navigator.clipboard.writeText({json.dumps(item["hook"] + "\\n\\n" + item["angle"] + "\\n\\nCTA: " + item["cta"])})">Copiar</button>{source_button(item, 'idea-source-' + str(index))}</div></div>' for index, item in enumerate(value['content_ideas']))
     scripts = ''.join(f'<div class="card"><h3>{_e(item["title"])}</h3><p><b>Hook</b><br>{_e(item["hook"])}</p><p><b>Body</b><br>{_e(item["body"])}</p><p><b>CTA</b><br>{_e(item["cta"])}</p><p class="muted">Duration target: {_e(item["duration_target"])}</p><div class="actions"><button type="button" class="secondary" onclick="navigator.clipboard.writeText({json.dumps(item["hook"] + "\\n\\n" + item["body"] + "\\n\\n" + item["cta"])})">Copiar</button>{source_button(item, 'script-source-' + str(index))}</div></div>' for index, item in enumerate(value['scripts']))
-    return f'<div class="card"><h3>Strategy</h3><p><b>Positioning</b><br>{_e(strategy["recommended_positioning"])}</p><p><b>Content formula</b><br>{_e(strategy["content_formula"])}</p><p><b>CTA strategy</b><br>{_e(strategy["recommended_cta_strategy"])}</p><p><b>Content mix</b><br>{_e(strategy["recommended_content_mix"])}</p></div><h3>Content ideas</h3>{ideas}<h3>Scripts</h3>{scripts}'
+    return f'<div class="card"><h3>Tu estrategia de contenido</h3><p><b>Posicionamiento</b><br>{_e(strategy["recommended_positioning"])}</p><p><b>Fórmula de contenido</b><br>{_e(strategy["content_formula"])}</p><p><b>Estrategia de CTA</b><br>{_e(strategy["recommended_cta_strategy"])}</p><p><b>Mezcla recomendada</b><br>{_e(strategy["recommended_content_mix"])}</p></div><h3>Ideas de contenido</h3>{ideas}<h3>Guiones</h3>{scripts}'
 
 
 def _channel_intelligence_results(data: dict[str, Any], analysis: ChannelIntelligenceAnalysis, db: Session) -> str:

@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   api:
-    image: kurukin-tiktok-api:actionable-intelligence-v1-5e3637d
+    image: ${KURUKIN_API_IMAGE:-kurukin-tiktok-api:dev}
     networks:
       - general_network
       - traefik_public

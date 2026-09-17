@@ -224,9 +224,9 @@ def test_single_page_actionable_workflow_and_schema_drift(db):
         channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
     admin.channel_intelligence_import_confirm(channel.id, token, db=db)
     page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
-    assert page.index('WHAT WORKS') < page.index('Ver análisis completo')
-    assert 'Crear contenido basado en estos patrones' in page
-    assert 'CREATE v1' in page and 'YOUR CONTENT PLAN' in page
+    assert page.index('¿POR QUÉ FUNCIONA ESTE CANAL?') < page.index('Ver análisis completo')
+    assert 'Adaptar esto a mi negocio' in page
+    assert 'CREAR CONTENIDO' in page and 'IDEAS DE CONTENIDO Y GUIONES' in page
     assert 'https://chatgpt.com/g/g-68a6de0c7ec48191876f8297e467fc7c-alex-hormozi-100m' in page
     payload = _channel_analysis_payload(data)
     payload['video_intelligence'] = payload.pop('videos')
@@ -293,34 +293,91 @@ def test_inline_dry_run_summary_and_human_video_label(db):
     assert admin._human_video_title(admin._selection(data, 'all')[0]).startswith('Caption')
 
 
-def test_research_ux_versions_structured_primary_and_demotes_legacy_prompt(db, monkeypatch):
+def test_product_ux_v1_human_journey_and_advanced_separation(db, monkeypatch):
     channel, _videos = corpus(db)
     monkeypatch.setenv('KURUKIN_BUILD_SHA', '193a52fbe8fd1d96336fdf9abc69fb8684452d28')
     get_settings.cache_clear()
 
     detail = admin.research_channel(channel.id, db=db).body.decode()
-    structured_href = f'/admin/research/channels/{channel.id}/intelligence'
     legacy_href = f'/admin/research/channels/{channel.id}/prompt'
-    assert f'<a class="button" href="{structured_href}">Structured Channel Intelligence</a>' in detail
-    assert f'<a class="button" href="{legacy_href}"' not in detail
-    assert 'Preparar investigación' in detail and 'Analizar con IA' in detail
-    assert 'Importar inteligencia' in detail and 'Resultados' in detail
-    assert 'Generador de prompt legacy' in detail
+    assert 'DATOS DEL CANAL' in detail and 'INTELIGENCIA' in detail
+    assert 'Falta analizar' in detail and 'Generar inteligencia' in detail
+    assert 'NO_INTELLIGENCE' not in detail
+    assert 'Generador legacy' in detail
 
     legacy = admin.prompt_page(channel.id, db=db).body.decode()
     assert 'LEGACY PROMPT GENERATOR' in legacy
-    assert f'href="{structured_href}">Ir a Structured Channel Intelligence</a>' in legacy
+    assert f'href="/admin/research/channels/{channel.id}/intelligence">Ir a Structured Channel Intelligence</a>' in legacy
     assert 'Opciones avanzadas' in legacy and 'Business/context' in legacy
 
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'INTERNAL RESEARCH BACKOFFICE v1.6 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build 193a52f' in page
-    assert 'Structured Channel Intelligence' in intelligence
+        assert 'INTERNAL RESEARCH BACKOFFICE v1.7 · SCI v1 · STRATEGIST v1 · CREATE v1 · Build 193a52f' in page
+        assert '1&nbsp; Canal' in page and '4&nbsp; Contenido' in page
+    assert 'Canales' in index and 'Siguiente paso' in index
+    assert 'channel-list' in index and '<table>' not in index
+    assert '@media(max-width:650px)' in index
+    assert 'Falta analizar' in intelligence and 'NO_INTELLIGENCE' not in intelligence
+    assert 'Admin / Debug' in index
 
     monkeypatch.delenv('KURUKIN_BUILD_SHA')
     get_settings.cache_clear()
     assert 'Build dev' in admin._layout('test', '').body.decode()
+
+
+@pytest.mark.parametrize(('technical', 'human'), [
+    ('NO_INTELLIGENCE', 'Falta analizar'),
+    ('FRESH', 'Inteligencia actualizada'),
+    ('PERFORMANCE_CHANGED', 'Hay nuevas métricas'),
+    ('SEMANTIC_DELTA', 'Hay contenido nuevo por analizar'),
+    ('CONTRACT_STALE', 'La inteligencia necesita actualizarse'),
+])
+def test_product_ux_translates_knowledge_states(technical, human):
+    assert admin._human_knowledge_state(technical) == human
+
+
+def test_product_ux_fresh_executive_first_private_and_create_flow(db):
+    channel, _videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    sci['channel_intelligence']['winning_patterns'] = [{
+        'name': 'Problema → reframe → esperanza', 'description': 'Convierte un problema reconocible en esperanza.',
+        'evidence': [{'claim': 'Patrón repetido.', 'video_ids': [sci['videos'][0]['video_id']]}],
+    }]
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
+    executive = page[:page.index('Ver análisis completo')]
+    assert 'Inteligencia actualizada' in executive
+    assert '¿POR QUÉ FUNCIONA ESTE CANAL?' in executive
+    assert 'FÓRMULA DOMINANTE' in executive
+    assert 'Adaptar esto a mi negocio' in executive
+    assert 'NO_INTELLIGENCE' not in executive and 'SEMANTIC_DELTA' not in executive
+    assert 'TU ESTRATEGIA' in page and 'Crear contenido' in page
+    assert 'private-context' in page and 'name="tone"' in page
+    assert 'Auto Curator' not in page
+    assert admin._private_context_from_form('Producto', 'Oferta', 'Audiencia', 'Leads', '', '')['tone'] == ''
+
+
+def test_product_ux_pending_keeps_last_intelligence_and_admin_debug_is_separate(db):
+    channel, videos = corpus(db)
+    data = admin._summary_for_channel(db, channel.id)
+    sci = _channel_analysis_payload(data)
+    token = admin._store_pending_channel_intelligence(admin.PendingChannelIntelligenceImport(
+        channel.id, sci, 'all', admin.canonical_json_sha256(sci), 1e20))
+    admin.channel_intelligence_import_confirm(channel.id, token, db=db)
+    videos[0].caption = 'Contenido nuevo para actualizar'; db.commit()
+    page = admin.channel_intelligence_page(channel.id, db=db).body.decode()
+    primary = page[:page.index('Ver análisis completo')]
+    assert 'Mostrando la última inteligencia disponible. Hay una actualización pendiente.' in primary
+    assert 'Actualizar inteligencia' in primary
+    assert 'SEMANTIC_DELTA' not in primary
+    system = admin.admin_system().body.decode()
+    debug = admin.admin_debug().body.decode()
+    assert 'Auto Curator' in system and 'Recorrido del producto' not in system
+    assert 'Diagnóstico del sistema' in debug
 
 
 @pytest.mark.parametrize('preset', list(admin.PROMPT_PRESETS))
@@ -365,6 +422,6 @@ def test_admin_html_route_requires_basic_auth(db, monkeypatch, tmp_path):
         assert client.get('/admin/research').status_code == 401
         response = client.get('/admin/research', auth=('admin', 'pass'))
         assert response.status_code == 200
-        assert 'Kurukin Internal Research' in response.text
+        assert 'Kurukin' in response.text and 'Canales' in response.text
     finally:
         app.dependency_overrides.clear()
