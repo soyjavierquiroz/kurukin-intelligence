@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, JSON
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Index, Numeric, String, Text, UniqueConstraint, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -102,6 +102,25 @@ class VideoSnapshot(Identity, Base):
     transcription_rank: Mapped[int | None] = mapped_column(Integer)
     transcript_eligible: Mapped[bool] = mapped_column(Boolean)
     transcript_skip_reason: Mapped[str | None] = mapped_column(String(32))
+
+
+class VideoMetricObservation(Identity, Base):
+    """Partial local evidence, deliberately independent of scan membership."""
+    __tablename__ = 'video_metric_observations'
+    __table_args__ = (
+        CheckConstraint('views IS NULL OR views >= 0', name='ck_local_metrics_views'),
+        CheckConstraint('likes IS NULL OR likes >= 0', name='ck_local_metrics_likes'),
+        CheckConstraint('views IS NOT NULL OR likes IS NOT NULL', name='ck_local_metrics_known'),
+        UniqueConstraint('video_id', 'source', 'fingerprint', name='uq_local_metric_observation'),
+        Index('ix_video_metric_observations_video_observed', 'video_id', 'observed_at'),
+    )
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('videos.id', ondelete='CASCADE'))
+    source: Mapped[str] = mapped_column(String(32))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    views: Mapped[int | None] = mapped_column(BigInteger)
+    likes: Mapped[int | None] = mapped_column(BigInteger)
+    bundle_sha256: Mapped[str | None] = mapped_column(String(64))
+    fingerprint: Mapped[str] = mapped_column(String(64))
 
 
 class Transcript(Identity, Base):

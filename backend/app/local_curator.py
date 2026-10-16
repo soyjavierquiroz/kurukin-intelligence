@@ -1,6 +1,6 @@
 """Deterministic local-curator ingestion; never creates scan observations.
 
-Metric-bearing bundles remain preview-only pending a dedicated observation schema.
+Partial metric observations never participate in scan ranking.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select, text as sql_text
 from sqlalchemy.orm import Session
 
-from .models import Channel, Transcript, Video
+from .models import Channel, Transcript, Video, VideoMetricObservation, now
 
 MAX_BYTES = 25 * 1024 * 1024
 MAX_RECORDS = 10_000
@@ -126,6 +126,14 @@ def parse_bundle(metadata: bytes, markdown: bytes) -> Bundle:
     return Bundle(sorted(normalized, key=lambda r: r['id']), transcripts, digest, warnings)
 
 
+SOURCE = 'local-curator-import-v1'
+
+
+def metric_fingerprint(row):
+    known = {key: row[key] for key in ('views', 'likes') if row[key] is not None}
+    return hashlib.sha256(json.dumps(known, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
 def preview(db: Session, bundle: Bundle):
     rows = bundle.rows
     stable = next((r['author_id'] for r in rows if r['author_id']), None)
@@ -147,6 +155,9 @@ def preview(db: Session, bundle: Bundle):
         warnings.append('author_id coincide; se conserva el username canónico existente.')
     existing = {v.tiktok_id: (v, t) for v, t in db.execute(select(Video, Transcript)
         .outerjoin(Transcript, Transcript.video_id == Video.id).where(Video.tiktok_id.in_([r['id'] for r in rows])))}
+    recorded = set(db.execute(select(VideoMetricObservation.video_id, VideoMetricObservation.fingerprint)
+        .where(VideoMetricObservation.video_id.in_([v.id for v, _ in existing.values()]),
+               VideoMetricObservation.source == SOURCE)).all()) if existing else set()
     counts = {k: 0 for k in ('VIDEO_NEW', 'VIDEO_EXISTING', 'TRANSCRIPT_NEW', 'TRANSCRIPT_EXISTS',
         'TRANSCRIPT_EXISTS_DIFFERENT', 'TRANSCRIPT_MISSING_IN_FILE', 'METADATA_ONLY', 'METRIC_NEW_OBSERVATION', 'METRIC_UNCHANGED')}
     classifications = []
@@ -156,7 +167,8 @@ def preview(db: Session, bundle: Bundle):
         if found and (not channel or found[0].channel_id != channel.id):
             errors.append(f'VIDEO_CHANNEL_CONFLICT: {row["id"]}')
         if not found and not row['created_at']:
-            errors.append(f'INVALID_METADATA: {row["id"]}: published_at obligatorio en el esquema actual; requiere migración para admitir fecha desconocida')
+            status.append('NEW_VIDEO_MISSING_PUBLISHED_AT')
+            errors.append(f'NEW_VIDEO_MISSING_PUBLISHED_AT: {row["id"]}: fecha de publicación obligatoria para videos nuevos')
         transcript = bundle.transcripts.get(row['id'])
         if transcript is None:
             status.extend(['TRANSCRIPT_MISSING_IN_FILE', 'METADATA_ONLY'])
@@ -166,17 +178,17 @@ def preview(db: Session, bundle: Bundle):
                 warnings.append(f'Transcripción diferente preservada: {row["id"]}')
         else:
             status.append('TRANSCRIPT_NEW')
+        if row['views'] is not None or row['likes'] is not None:
+            status.append('METRIC_UNCHANGED' if found and (found[0].id, metric_fingerprint(row)) in recorded else 'METRIC_NEW_OBSERVATION')
         for key in status:
-            counts[key] += 1
+            counts[key] = counts.get(key, 0) + 1
         classifications.append((row['id'], status))
     for video_id in bundle.transcripts.keys() - {r['id'] for r in rows}:
         warnings.append(f'TRANSCRIPT_WITHOUT_METADATA: {video_id}; no se importará')
     metrics = sum(r['views'] is not None or r['likes'] is not None for r in rows)
-    if metrics:
-        errors.append(f'METRIC_SCHEMA_REQUIRED: {metrics} observaciones parciales pendientes de un esquema seguro. Importación bloqueada; no se descartarán métricas.')
     return dict(channel=channel, author=author, author_id=stable, nickname=rows[0]['nickname'],
         counts=counts, warnings=warnings, errors=errors, classifications=classifications,
-        metrics_pending=metrics, channel_status='CHANNEL_CONFLICT' if any(e.startswith('CHANNEL_CONFLICT') for e in errors) else 'CHANNEL_EXISTING' if channel else 'CHANNEL_NEW',
+        metrics_detected=metrics, channel_status='CHANNEL_CONFLICT' if any(e.startswith('CHANNEL_CONFLICT') for e in errors) else 'CHANNEL_EXISTING' if channel else 'CHANNEL_NEW',
         matched=len(bundle.transcripts.keys() & {r['id'] for r in rows}))
 
 
@@ -199,6 +211,7 @@ def persist(db: Session, bundle: Bundle):
             raise HTTPException(409, 'CHANNEL_CONFLICT: identidad modificada')
         if not channel.tiktok_user_id and result['author_id']:
             channel.tiktok_user_id = result['author_id']
+    observed_at = now()
     for row in bundle.rows:
         video = db.scalar(select(Video).where(Video.tiktok_id == row['id']).with_for_update())
         values = dict(author=row['author'], nickname=row['nickname'] or '', caption=row['caption'] or '',
@@ -218,5 +231,12 @@ def persist(db: Session, bundle: Bundle):
         text = bundle.transcripts.get(row['id'])
         if text is not None and db.scalar(select(Transcript.id).where(Transcript.video_id == video.id)) is None:
             db.add(Transcript(video_id=video.id, text=text, model='local-curator-import-v1', language=None, duration=video.duration))
+        if row['views'] is not None or row['likes'] is not None:
+            fingerprint = metric_fingerprint(row)
+            if db.scalar(select(VideoMetricObservation.id).where(
+                VideoMetricObservation.video_id == video.id, VideoMetricObservation.source == SOURCE,
+                VideoMetricObservation.fingerprint == fingerprint)) is None:
+                db.add(VideoMetricObservation(video_id=video.id, source=SOURCE, observed_at=observed_at,
+                    views=row['views'], likes=row['likes'], bundle_sha256=bundle.digest, fingerprint=fingerprint))
     db.flush()
     return result

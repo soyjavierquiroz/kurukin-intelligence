@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from app import admin, local_curator as lc
 from app.db import get_db
 from app.main import app
-from app.models import Analysis, Channel, Transcript, TranscriptionJob, Video, VideoSnapshot
+from app.models import Analysis, Channel, Transcript, TranscriptionJob, Video, VideoSnapshot, VideoMetricObservation, now
 from app.schemas import AnalysisInput
 from app.services import create_analysis, global_ranked_videos
 
@@ -148,20 +148,24 @@ def test_channel_and_video_conflicts(db):
     assert any('VIDEO_CHANNEL_CONFLICT' in e for e in lc.preview(db, bundle())['errors'])
 
 
-def test_partial_metrics_and_unknown_date_blocked_without_fabrication(db):
+def test_partial_metrics_and_unknown_date_policy(db):
     b = bundle(metrics=True)
     p = lc.preview(db, b)
-    assert p['metrics_pending'] == 1
-    assert p['counts']['METRIC_NEW_OBSERVATION'] == 0
-    with pytest.raises(HTTPException, match='METRIC_SCHEMA_REQUIRED'):
-        lc.persist(db, b)
-    assert count(db, VideoSnapshot) == count(db, Analysis) == count(db, Video) == 0
+    assert p['metrics_detected'] == 1
+    assert p['counts']['METRIC_NEW_OBSERVATION'] == 1
+    assert count(db, VideoMetricObservation) == 0
+    lc.persist(db, b); db.commit()
+    assert count(db, VideoMetricObservation) == 1
+    assert count(db, VideoSnapshot) == count(db, Analysis) == 0
     rows, _ = inputs(); rows[0]['created_at'] = None
-    assert any('published_at' in e for e in lc.preview(db, bundle(rows))['errors'])
+    assert not lc.preview(db, bundle(rows))['errors']
+    rows[0]['id'] = '7685102680854875499'
+    with pytest.raises(HTTPException, match='NEW_VIDEO_MISSING_PUBLISHED_AT'):
+        lc.persist(db, bundle(rows))
 
 
 def test_future_scan_reuses_video_and_skips_whisper(db):
-    b = bundle(); lc.persist(db, b); db.commit()
+    b = bundle(metrics=True); lc.persist(db, b); db.commit()
     original_ids = set(db.scalars(select(Video.id)))
     videos = [dict(id=r['id'], author=r['author'], nickname=r['nickname'], caption='scan',
         created_at=1789257600, views=10000, likes=1000, comments=10, shares=20, favorites=30,
@@ -172,6 +176,7 @@ def test_future_scan_reuses_video_and_skips_whisper(db):
     assert count(db, Transcript) == 3
     assert count(db, VideoSnapshot) == 3
     assert count(db, TranscriptionJob) == 0
+    assert count(db, VideoMetricObservation) == 1
 
 
 def test_admin_workflow_auth_dry_run_confirm_and_types(db, monkeypatch):
@@ -182,17 +187,20 @@ def test_admin_workflow_auth_dry_run_confirm_and_types(db, monkeypatch):
             assert client.get(route).status_code == 401
             assert client.post(route + '/confirm', data={'token':'x', 'digest':'x'}).status_code == 401
             app.dependency_overrides[admin.require_admin] = lambda: None
-            rows, md = inputs()
+            rows, md = inputs(True)
             files = {'metadata': ('metadata.json', json.dumps(rows), 'application/json'), 'transcripts': ('transcripciones.md', md, 'text/markdown')}
             assert client.get(route).status_code == 200
             page = client.post(route + '/dry-run', files=files)
             assert page.status_code == 200 and 'CURACIÓN LOCAL DETECTADA' in page.text
+            assert 'Métricas detectadas: 1' in page.text
+            assert 'disabled' not in page.text.split('Importar al Corpus Global')[0].rsplit('<button', 1)[1]
             assert count(db, Video) == 0
             import re
             token = re.search(r'name="token" value="([^"]+)"', page.text)[1]
             digest = re.search(r'name="digest" value="([^"]+)"', page.text)[1]
             assert client.post(route + '/confirm', data=dict(token=token, digest=digest)).status_code == 200
             assert count(db, Video) == 3
+            assert count(db, VideoMetricObservation) == 1
             assert client.post(route + '/confirm', data=dict(token=token, digest=digest)).status_code == 410
             files['metadata'] = ('wrong.json', json.dumps(rows), 'application/json')
             assert client.post(route + '/dry-run', files=files).status_code == 422
@@ -266,3 +274,93 @@ def test_postgres_confirmation_serializes_before_revalidation(monkeypatch):
     with pytest.raises(HTTPException):
         lc.persist(fake, bundle())
     assert statements == ['SELECT pg_advisory_xact_lock(740183279124)']
+
+
+def test_metric_idempotency_changed_evidence_and_observation_time(db):
+    from datetime import datetime, timezone
+    before = datetime.now(timezone.utc)
+    b = bundle(metrics=True)
+    lc.persist(db, b); db.commit()
+    metric = db.scalar(select(VideoMetricObservation))
+    metric_id = metric.id
+    assert metric.source == 'local-curator-import-v1'
+    assert metric.bundle_sha256 == b.digest
+    assert metric.views == 3600000 and metric.likes == 135900
+    assert metric.observed_at.replace(tzinfo=timezone.utc) >= before
+    assert metric.created_at.replace(tzinfo=timezone.utc) >= before
+    assert metric.observed_at.year == before.year
+    result = lc.persist(db, b); db.commit()
+    assert result['counts']['METRIC_UNCHANGED'] == 1
+    assert result['counts']['METRIC_NEW_OBSERVATION'] == 0
+    rows, md = inputs(True)
+    rows[0]['caption'] = 'Different caption, same metrics'
+    rows[0]['media_file'] = 'different.mp4'
+    changed_bundle = bundle(rows, md)
+    assert changed_bundle.digest != b.digest
+    assert lc.persist(db, changed_bundle)['counts']['METRIC_UNCHANGED'] == 1
+    db.commit()
+    assert db.get(VideoMetricObservation, metric_id).bundle_sha256 == b.digest
+    rows[0]['views'] = 3900000
+    assert lc.persist(db, bundle(rows, md))['counts']['METRIC_NEW_OBSERVATION'] == 1
+    db.commit()
+    assert count(db, VideoMetricObservation) == 2
+    assert count(db, Video) == count(db, Transcript) == 3
+    assert len(set(db.scalars(select(VideoMetricObservation.fingerprint)))) == 2
+
+
+@pytest.mark.parametrize('views,likes,valid', [(None, 10, True), (10, None, True),
+    (0, None, True), (None, 0, True), (None, None, False), (-1, 10, False), (10, -1, False)])
+def test_metric_database_constraints(db, views, likes, valid):
+    from sqlalchemy.exc import IntegrityError
+    lc.persist(db, bundle()); db.commit()
+    video = db.scalar(select(Video))
+    db.add(VideoMetricObservation(video_id=video.id, source=lc.SOURCE, views=views, likes=likes,
+                                   fingerprint='a' * 64, observed_at=now()))
+    if valid:
+        db.commit()
+        saved = db.scalar(select(VideoMetricObservation))
+        assert saved.views == views and saved.likes == likes
+    else:
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+
+def test_unique_metric_constraint(db):
+    from sqlalchemy.exc import IntegrityError
+    lc.persist(db, bundle(metrics=True)); db.commit()
+    metric = db.scalar(select(VideoMetricObservation))
+    db.add(VideoMetricObservation(video_id=metric.video_id, source=metric.source,
+        views=metric.views, likes=metric.likes, fingerprint=metric.fingerprint))
+    with pytest.raises(IntegrityError):
+        db.flush()
+    db.rollback()
+
+
+def test_local_metrics_cannot_change_scan_median_outlier_priority_or_membership(db):
+    from test_research_backoffice import corpus
+    from app.services import analysis_ranked_videos
+    channel, videos = corpus(db)
+    analysis = db.scalar(select(Analysis).where(Analysis.channel_id == channel.id))
+    before_median, before_ranks = global_ranked_videos(db, channel.id)
+    before_priority = admin._summary_for_channel(db, channel.id)['priority_count']
+    before_membership = [v.id for v, *_ in analysis_ranked_videos(db, analysis)]
+    before_snapshots = [(s.id, s.outlier_score, s.overall_rank, s.transcription_rank) for s in db.scalars(select(VideoSnapshot))]
+    rows, md = inputs(True)
+    for row in rows:
+        row.update(author=channel.username, author_id=None, nickname=channel.nickname, views=999999999, likes=1234)
+    lc.persist(db, bundle(rows, md)); db.commit()
+    after_median, after_ranks = global_ranked_videos(db, channel.id)
+    assert after_median == before_median
+    assert [(v.id, rates) for v, _, rates, _ in after_ranks] == [(v.id, rates) for v, _, rates, _ in before_ranks]
+    assert admin._summary_for_channel(db, channel.id)['priority_count'] == before_priority
+    assert [v.id for v, *_ in analysis_ranked_videos(db, analysis)] == before_membership
+    assert [(s.id, s.outlier_score, s.overall_rank, s.transcription_rank) for s in db.scalars(select(VideoSnapshot))] == before_snapshots
+    assert analysis.video_count == 4
+    assert count(db, VideoMetricObservation) == 3
+
+
+def test_fingerprint_only_known_metrics():
+    row = {'views': 3600000, 'likes': None}
+    assert lc.metric_fingerprint(row) == lc.metric_fingerprint(dict(row, observed_at='later', bundle_sha256='different'))
+    assert lc.metric_fingerprint(row) != lc.metric_fingerprint(dict(row, likes=0))

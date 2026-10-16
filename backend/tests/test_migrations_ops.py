@@ -55,7 +55,11 @@ def test_initial_migration_matches_metadata_and_downgrade():
             spec10=importlib.util.spec_from_file_location('knowledge_strategist', ROOT/'alembic/versions/0010_knowledge_strategist.py')
             tenth=importlib.util.module_from_spec(spec10); spec10.loader.exec_module(tenth)
             tenth.upgrade()
+            spec11=importlib.util.spec_from_file_location('local_metrics', ROOT/'alembic/versions/0011_local_curator_metrics.py')
+            eleventh=importlib.util.module_from_spec(spec11); spec11.loader.exec_module(eleventh)
+            eleventh.upgrade()
             assert compare_metadata(context, Base.metadata) == []
+            eleventh.downgrade()
             tenth.downgrade()
             ninth.downgrade()
             eighth.downgrade()
@@ -360,3 +364,29 @@ def test_alembic_config_error_is_safe_and_actionable(monkeypatch):
     with pytest.raises(SystemExit) as caught:
         command.current(Config(str(ROOT/'alembic.ini')))
     assert str(caught.value) == 'Migration error: ValidationError\nConfiguration field: whisper_concurrency'
+
+
+def test_0011_only_adds_local_observations_and_downgrades():
+    from alembic.script import ScriptDirectory
+    spec = importlib.util.spec_from_file_location('local_metrics', ROOT/'alembic/versions/0011_local_curator_metrics.py')
+    migration = importlib.util.module_from_spec(spec); spec.loader.exec_module(migration)
+    assert migration.revision == '0011_local_metrics'
+    assert migration.down_revision == '0010_knowledge_strategist'
+    assert len(migration.revision) <= 32
+    assert ScriptDirectory.from_config(Config(str(ROOT/'alembic.ini'))).get_current_head() == migration.revision
+    with create_engine('sqlite://').begin() as connection:
+        Base.metadata.create_all(connection, tables=[table for table in Base.metadata.sorted_tables if table.name != 'video_metric_observations'])
+        before = {name: inspect(connection).get_columns(name) for name in inspect(connection).get_table_names()}
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            inspector = inspect(connection)
+            assert set(inspector.get_table_names()) == set(before) | {'video_metric_observations'}
+            assert {c['name'] for c in inspector.get_check_constraints('video_metric_observations')} == {
+                'ck_local_metrics_views', 'ck_local_metrics_likes', 'ck_local_metrics_known'}
+            assert inspector.get_unique_constraints('video_metric_observations')[0]['column_names'] == ['video_id', 'source', 'fingerprint']
+            assert inspector.get_indexes('video_metric_observations')[0]['column_names'] == ['video_id', 'observed_at']
+            assert inspector.get_foreign_keys('video_metric_observations')[0]['options']['ondelete'] == 'CASCADE'
+            for name, columns in before.items():
+                assert [(c['name'], str(c['type']), c['nullable']) for c in inspector.get_columns(name)] == [(c['name'], str(c['type']), c['nullable']) for c in columns]
+            migration.downgrade()
+            assert set(inspect(connection).get_table_names()) == set(before)
