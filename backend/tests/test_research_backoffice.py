@@ -318,7 +318,7 @@ def test_external_ai_handoff_is_an_explicit_mobile_safe_three_step_flow(db):
     assert 'class="channel-context"' in page and 'Trabajando en:' in page
     assert f'@{channel.username}' in page and channel.nickname in page
     assert '@media(max-width:650px){.channel-context' in layout
-    assert 'KURUKIN PRODUCT LITE v1.2 · SCI v1' in page
+    assert 'KURUKIN PRODUCT LITE v1.3 · SCI v1' in page
 
 
 def test_channel_context_is_visible_on_product_lite_channel_screens(db):
@@ -670,7 +670,7 @@ def test_product_lite_marker_and_advanced_separation(db, monkeypatch):
     index = admin.research_index(db=db).body.decode()
     intelligence = admin.channel_intelligence_page(channel.id, db=db).body.decode()
     for page in (index, detail, intelligence):
-        assert 'KURUKIN PRODUCT LITE v1.2 · SCI v1 · Build 193a52f' in page
+        assert 'KURUKIN PRODUCT LITE v1.3 · SCI v1 · Build 193a52f' in page
         assert '1&nbsp; CANAL' in page and '3&nbsp; USAR INTELIGENCIA' in page
     assert 'Canales' in index and 'Siguiente paso' in index
     assert 'channel-list' in index and '<table>' not in index

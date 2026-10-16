@@ -2,7 +2,7 @@
 
 This module intentionally owns no acquisition, worker, object-storage, or
 Semantic DNA behaviour.  It reads the existing global corpus and writes only
-new global ``Transcript`` records after an explicit import confirmation.
+global corpus assets after an explicit import confirmation.
 """
 from __future__ import annotations
 
@@ -21,11 +21,14 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+
+from . import local_curator
 
 from .config import get_settings
 from .db import get_db
@@ -121,7 +124,7 @@ body{{margin:0}}main{{max-width:1000px;margin:auto;padding:28px 20px 48px}}heade
 .handoff-step{{border-left:4px solid #1659b7}}.handoff-step h2{{margin-top:4px}}.handoff-status{{min-height:1.4em}}.required-filename{{display:inline-block;background:#eff6ff;border:1px solid #b8d0f3;border-radius:6px;padding:4px 7px;font-size:1em;font-weight:700;overflow-wrap:anywhere}}.current-intelligence{{display:grid;gap:6px}}.executive-thesis{{padding:28px;border:0;border-radius:14px;background:linear-gradient(135deg,#eaf3ff,#fff)}}.formula{{font-size:1.15rem;line-height:1.7}}.decision-cta{{padding:22px;border:1px solid #b8d0f3;border-radius:12px;margin:20px 0 28px}}.mechanism-list{{display:grid;gap:0;border-top:1px solid #dce3eb}}.mechanism{{padding:20px 0;border-bottom:1px solid #dce3eb}}.mechanism-rank{{font-size:1.5rem;font-weight:800;color:#1659b7;margin-right:10px}}.proof-summary{{color:#526174;font-size:.9rem}}.evidence-detail{{margin-top:12px;background:#f8fafc;border-radius:8px;padding:10px}}.evidence-detail summary{{cursor:pointer;font-weight:700}}.compact-columns{{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin:20px 0}}.compact-list{{margin:8px 0;padding-left:20px}}.compact-list li{{margin:5px 0}}.secondary-intelligence{{margin:10px 0;border:1px solid #e7edf3;border-radius:8px;padding:12px}}.strategy-result{{margin:26px 0;padding:24px;border:1px solid #b8d0f3;border-radius:14px}}.strategy-recommendation{{padding:16px 0;border-bottom:1px solid #e7edf3}}.strategy-recommendation:last-child{{border-bottom:0}}@media(max-width:650px){{.handoff-step{{padding:16px}}.dropzone{{padding:24px 12px}}.compact-columns{{grid-template-columns:1fr;gap:12px}}.executive-thesis{{padding:20px}}.decision-cta{{padding:18px}}}}
 .channel-context{{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;margin:0 0 18px;padding:10px 12px;background:#eff6ff;border:1px solid #b8d0f3;border-radius:8px}}.channel-context-label{{color:#526174;font-size:.84rem;font-weight:700}}@media(max-width:650px){{.channel-context{{align-items:flex-start;display:block;line-height:1.55}}.channel-context-label{{display:block}}}}
 .field-help{{display:block;color:#64748b;font-size:.88rem;margin:4px 0 8px}}.choice-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}}.choice{{display:flex;align-items:center;gap:8px;border:1px solid #b9c6d4;border-radius:8px;padding:10px;min-height:44px;cursor:pointer}}.choice input{{accent-color:#1659b7}}.prepared-context{{margin-top:14px}}.prepared-summary{{display:grid;gap:4px;margin:12px 0}}.hormozi-handoff{{margin-top:18px;padding-top:14px;border-top:1px solid #dce3eb}}@media(max-width:650px){{.choice-grid{{grid-template-columns:1fr}}.choice{{min-height:48px}}}}
-</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">KURUKIN PRODUCT LITE v1.2 · SCI v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
+</style></head><body><main><header><h1><a href="/admin/research">Kurukin</a></h1><span class="muted">KURUKIN PRODUCT LITE v1.3 · SCI v1 · Build {_e(_build_marker())}</span></header>{journey}{content}</main></body></html>''')
 
 
 def _latest_snapshot_subquery():
@@ -279,7 +282,7 @@ def research_index(q: str = '', page: int = 1,
 @router.get('/system', response_class=HTMLResponse)
 def admin_system(_auth: None = Depends(require_admin)):
     """Operational entry point kept separate from the product journey."""
-    content = '''<p><a href="/admin/research">← Volver al producto</a></p><h2>Admin / Debug</h2><p class="muted">Controles operativos y diagnóstico; no forman parte del recorrido de Canal → Inteligencia → Estrategia → Contenido.</p><div class="card"><h3>Operación</h3><p>Estado de workers, colas, reintentos, migraciones y diagnósticos de hashes se consultan desde las herramientas operativas autorizadas.</p><p><a class="button secondary" href="/admin/debug">Abrir diagnóstico</a></p></div><div class="card" id="auto-curator"><h3>Auto Curator</h3><p>El panel de diagnóstico de Auto Curator sigue siendo una herramienta de administración de la extensión; no se muestra en las páginas de canal.</p></div>'''
+    content = '''<p><a href="/admin/research">← Volver al producto</a></p><h2>Admin / Debug</h2><p><a class="button secondary" href="/admin/research/import/local-curator">Importar curación local</a></p><p class="muted">Controles operativos y diagnóstico; no forman parte del recorrido de Canal → Inteligencia → Estrategia → Contenido.</p><div class="card"><h3>Operación</h3><p>Estado de workers, colas, reintentos, migraciones y diagnósticos de hashes se consultan desde las herramientas operativas autorizadas.</p><p><a class="button secondary" href="/admin/debug">Abrir diagnóstico</a></p></div><div class="card" id="auto-curator"><h3>Auto Curator</h3><p>El panel de diagnóstico de Auto Curator sigue siendo una herramienta de administración de la extensión; no se muestra en las páginas de canal.</p></div>'''
     return _layout('Admin / Debug', content, product_journey=False)
 
 
@@ -1962,3 +1965,70 @@ Rules:
 def historical_import_prompt(_auth: None = Depends(require_admin)):
     content = f'''<p><a href="/admin/research">← Global corpus</a></p><h2>Historical normalization prompt</h2><p class="muted">Use this with ChatGPT, Gemini, or Claude alongside the old files. Kurukin only receives the resulting canonical JSONL.</p><textarea id="historical" readonly>{_e(HISTORICAL_IMPORT_PROMPT)}</textarea><div class="actions"><button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('historical').value)">Copy historical import prompt</button></div>'''
     return _layout('Historical import prompt', content)
+
+
+# Separate native-bundle workflow. Historical JSONL contracts above are unchanged.
+_pending_local: dict[str, tuple[local_curator.Bundle, float]] = {}
+
+
+@router.get('/research/import/local-curator', response_class=HTMLResponse)
+def local_curator_page(_auth: None = Depends(require_admin)):
+    return _layout('Importar curación local', '''<p><a href="/admin/system">← Admin</a></p><h2>Importar curación local</h2><p>Local Curator Import v1</p><p>Importa metadata.json + transcripciones.md generados por el curador local. Kurukin puede crear videos faltantes y reutilizar sus transcripciones globalmente.</p><form method="post" action="/admin/research/import/local-curator/dry-run" enctype="multipart/form-data"><p><label>metadata.json <input type="file" name="metadata" accept=".json,application/json" required></label></p><p><label>transcripciones.md <input type="file" name="transcripts" accept=".md,text/markdown,text/plain" required></label></p><button>Analizar archivos</button></form><p>25 MiB por archivo · 10.000 videos · 100.000 caracteres por transcripción. Primero se muestra una vista previa sin guardar.</p>''', product_journey=False)
+
+
+@router.post('/research/import/local-curator/dry-run', response_class=HTMLResponse)
+async def local_curator_dry_run(request: Request, metadata: UploadFile = File(...), transcripts: UploadFile = File(...),
+                                _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+    form = await request.form()
+    if sorted(form.keys()) != ['metadata', 'transcripts'] or len(form.multi_items()) != 2:
+        raise HTTPException(422, 'Se requieren exactamente dos archivos')
+    if metadata.filename != 'metadata.json' or transcripts.filename != 'transcripciones.md':
+        raise HTTPException(422, 'Se requieren exactamente metadata.json y transcripciones.md')
+    if metadata.content_type not in ('application/json', 'text/plain', 'application/octet-stream') or transcripts.content_type not in ('text/markdown', 'text/plain', 'application/octet-stream'):
+        raise HTTPException(422, 'Tipo de archivo no admitido')
+    bundle = local_curator.parse_bundle(await metadata.read(local_curator.MAX_BYTES + 1),
+                                        await transcripts.read(local_curator.MAX_BYTES + 1))
+    result = local_curator.preview(db, bundle)
+    # Preview releases any read locks and never persists data.
+    db.rollback()
+    token = secrets.token_urlsafe(32)
+    with _pending_lock:
+        for key in [k for k, (_, created) in _pending_local.items() if created < time.time() - PENDING_IMPORT_TTL_SECONDS]:
+            del _pending_local[key]
+        pending_size = sum(sum(len(t.encode('utf-8')) for t in b.transcripts.values()) + len(json.dumps(b.rows).encode()) for b, _ in _pending_local.values())
+        bundle_size = sum(len(t.encode('utf-8')) for t in bundle.transcripts.values()) + len(json.dumps(bundle.rows).encode())
+        if len(_pending_local) >= 20 or pending_size + bundle_size > 100 * 1024 * 1024:
+            raise HTTPException(429, 'Demasiadas vistas previas pendientes')
+        _pending_local[token] = (bundle, time.time())
+    counts = result['counts']
+    labels = {'VIDEO_EXISTING': 'Videos ya existentes', 'VIDEO_NEW': 'Videos nuevos',
+        'TRANSCRIPT_EXISTS': 'Transcripciones ya existentes', 'TRANSCRIPT_NEW': 'Transcripciones nuevas',
+        'TRANSCRIPT_EXISTS_DIFFERENT': 'Existentes diferentes', 'METADATA_ONLY': 'Solo metadata',
+        'METRIC_NEW_OBSERVATION': 'Nuevas observaciones guardables', 'METRIC_UNCHANGED': 'Observaciones sin cambios'}
+    summary = ''.join(f'<p>{label}: <b>{counts[key]}</b></p>' for key, label in labels.items())
+    issues = ''.join(f'<li>{_e(value)}</li>' for value in result['errors'] + result['warnings']) or '<li>Sin conflictos ni advertencias.</li>'
+    labels['TRANSCRIPT_MISSING_IN_FILE'] = 'Sin transcripción en el archivo'
+    rows = ''.join(f'<tr><td>{_e(video_id)}</td><td>{_e(", ".join(labels.get(s, s) for s in status))}</td></tr>' for video_id, status in result['classifications'])
+    return _layout('Curación local: vista previa', f'''<h2>CURACIÓN LOCAL DETECTADA</h2><p>Canal: @{_e(result['author'])}</p><p>Nombre: {_e(result['nickname'])}</p><p>TikTok author ID: {_e(result['author_id'])}</p><p>Canal existente: {'Sí' if result['channel'] else 'No'}</p><p>Metadata: {len(bundle.rows)} videos</p><p>Transcripciones: {len(bundle.transcripts)}</p><p>IDs coincidentes: {result['matched']}</p>{summary}<p>Observaciones pendientes de esquema: {result['metrics_pending']}</p><p>SHA-256: <code>{bundle.digest}</code></p><h3>Advertencias / conflictos</h3><ul>{issues}</ul><form method="post" action="/admin/research/import/local-curator/confirm"><input type="hidden" name="token" value="{_e(token)}"><input type="hidden" name="digest" value="{bundle.digest}"><button {'disabled' if result['errors'] else ''}>Importar al Corpus Global</button></form><details><summary>Detalle por video</summary><table><tr><th>TikTok ID</th><th>Clasificación</th></tr>{rows}</table></details>''', product_journey=False)
+
+
+@router.post('/research/import/local-curator/confirm', response_class=HTMLResponse)
+def local_curator_confirm(token: str = Form(...), digest: str = Form(...),
+                          _auth: None = Depends(require_admin), db: Session = Depends(get_db)):
+    with _pending_lock:
+        pending = _pending_local.pop(token, None)
+    if pending is None or pending[1] < time.time() - PENDING_IMPORT_TTL_SECONDS:
+        raise HTTPException(410, 'Vista previa vencida; vuelve a analizar los archivos')
+    bundle = pending[0]
+    if not secrets.compare_digest(bundle.digest, digest):
+        raise HTTPException(409, 'La identidad del bundle no coincide')
+    try:
+        result = local_curator.persist(db, bundle)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, 'El corpus cambió durante la confirmación; vuelve a analizar los archivos') from None
+    except HTTPException:
+        db.rollback()
+        raise
+    return _layout('Curación local importada', f'''<h2>Importación completa</h2><p>Videos nuevos: {result['counts']['VIDEO_NEW']}</p><p>Transcripciones nuevas: {result['counts']['TRANSCRIPT_NEW']}</p><p>SHA-256: <code>{bundle.digest}</code></p><a href="/admin/research">Ver Corpus Global</a>''', product_journey=False)
